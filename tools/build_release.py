@@ -76,11 +76,19 @@ def main() -> None:
             shutil.copy2(source, target)
             files[relative] = sha256(target)
 
+    # Record this build so later releases can recognise and upgrade it.
+    known_path = REPO / "tools" / "known_builds.json"
+    known = json.loads(known_path.read_text(encoding="utf-8"))
+    if files["Nookery.exe"] not in known["modded_exe_sha256"]:
+        known["modded_exe_sha256"].append(files["Nookery.exe"])
+        known_path.write_text(json.dumps(known, indent=2) + "\n", encoding="utf-8")
+
     manifest = {
         "version": args.version,
         "nookery_revision": NOOKERY_REVISION,
         "official": {relative: sha256(args.official / relative) for relative in REPLACED_FILES},
         "files": files,
+        "earlier_modded_exe": [h for h in known["modded_exe_sha256"] if h != files["Nookery.exe"]],
         "mods": MODS,
     }
     (payload / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

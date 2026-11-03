@@ -76,6 +76,8 @@ class Game:
             return "official"
         if digest == self.manifest["files"]["Nookery.exe"]:
             return "modded"
+        if digest in self.manifest.get("earlier_modded_exe", []):
+            return "earlier"
         return "unknown"
 
     def revision(self) -> str:
@@ -119,8 +121,9 @@ def check_ready(game: Game, log) -> str:
         raise InstallError(
             f"This Nookery.exe is version {revision[:7]}, but these mods were built for {wanted[:7]}. "
             "Nothing was changed.")
-    log(f"Found {'the official Nookery' if state == 'official' else 'Nookery with these mods'} "
-        f"(revision {game.manifest['nookery_revision'][:7]}).")
+    found = {"official": "the official Nookery", "modded": "Nookery with these mods",
+             "earlier": "Nookery with an earlier version of these mods, which will be updated"}[state]
+    log(f"Found {found} (revision {game.manifest['nookery_revision'][:7]}).")
     return state
 
 
@@ -193,7 +196,7 @@ def run_cli(args, manifest: dict) -> int:
         if args.status:
             state = game.state()
             print(f"{game.folder}: {state}")
-            if state == "modded":
+            if state in ("modded", "earlier"):
                 print("Mods on: " + (", ".join(game.enabled_mods()) or "none"))
         elif args.uninstall:
             uninstall(game, print)
@@ -237,6 +240,7 @@ def run_gui(manifest: dict) -> int:
         state = game.state()
         log(f"{path}: " + {"official": "official Nookery, ready to install",
                            "modded": "Nookery with these mods; change the selection or uninstall",
+                           "earlier": "Nookery with an earlier version of these mods; Install updates it",
                            "unknown": f"a Nookery version these mods weren't built for (revision {game.revision()})",
                            }.get(state, state))
         for mod_id, var in checks.items():

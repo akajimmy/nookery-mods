@@ -14,10 +14,10 @@ index 20c0953..fb94038 100644
  # fixNES — vendored NES emulator (MIT License, by FIX94)
 diff --git a/pc/include/acgc/mods.hpp b/pc/include/acgc/mods.hpp
 new file mode 100644
-index 0000000..dac0749
+index 0000000..bccbbb5
 --- /dev/null
 +++ b/pc/include/acgc/mods.hpp
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,88 @@
 +#pragma once
 +
 +// Small mod framework: lets self-contained mods add settings, menu options, hotkeys and overlay documents
@@ -52,6 +52,7 @@ index 0000000..dac0749
 +enum class SettingsPage {
 +    Audio,    // Settings > Audio
 +    Gameplay, // Settings > Gameplay
++    Mouse,    // Settings > Mouse, a tab shown only when a switched-on mod adds options to it
 +    Controls, // Controls > Device > Options
 +};
 +
@@ -97,6 +98,7 @@ index 0000000..dac0749
 +std::vector<Hotkey> hotkeys();
 +void handle_hotkey_event(const SDL_Event& event);
 +void build_settings(SettingsPage page, SettingsBuilder& builder);
++bool has_settings(SettingsPage page);
 +void create_overlays();
 +
 +} // namespace acgc::mods
@@ -106,11 +108,12 @@ index 0000000..dac0749
 +        ::acgc::mods::register_mod(::acgc::mods::Mod{ .id = #mod_id, __VA_ARGS__ })
 diff --git a/pc/res/lang/mods/base.json b/pc/res/lang/mods/base.json
 new file mode 100644
-index 0000000..f8f2ff6
+index 0000000..cfb33f0
 --- /dev/null
 +++ b/pc/res/lang/mods/base.json
-@@ -0,0 +1,4 @@
+@@ -0,0 +1,5 @@
 +{
++  "mods.tabs.mouse": "Mouse",
 +  "mods.hotkeys.page": "Hotkeys",
 +  "mods.hotkeys.inline_help": "Select a hotkey, then press the key to assign to it. Backspace or Delete clears it, Escape cancels."
 +}
@@ -162,10 +165,10 @@ index a34ce5c..b1898fb 100644
          } else if (event->type == AURORA_PAUSED || event->type == AURORA_UNPAUSED) {
 diff --git a/pc/src/mods/mods.cpp b/pc/src/mods/mods.cpp
 new file mode 100644
-index 0000000..4cedc5c
+index 0000000..f19ad64
 --- /dev/null
 +++ b/pc/src/mods/mods.cpp
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,153 @@
 +#include "acgc/mods.hpp"
 +
 +#include "acgc/settings.hpp"
@@ -295,6 +298,19 @@ index 0000000..4cedc5c
 +            mod.build_settings(page, builder);
 +        }
 +    }
++}
++
++bool has_settings(SettingsPage page) {
++    // Dry run of build_settings that only notes whether anything would be added.
++    class Probe final : public SettingsBuilder {
++    public:
++        bool any = false;
++        void add_section(const char*) override {}
++        void add_bool(borealis::config::Var<bool>&, const char*, const char*) override { any = true; }
++        void add_int(borealis::config::Var<int>&, const char*, const char*, int, const char*) override { any = true; }
++    } probe;
++    build_settings(page, probe);
++    return probe.any;
 +}
 +
 +void create_overlays() {
@@ -495,7 +511,7 @@ index 99d8a76..3a3df52 100644
          return;
      }
 diff --git a/pc/src/ui/settings.cpp b/pc/src/ui/settings.cpp
-index bd2b09f..b9e9e45 100644
+index bd2b09f..3e55a53 100644
 --- a/pc/src/ui/settings.cpp
 +++ b/pc/src/ui/settings.cpp
 @@ -1,6 +1,7 @@
@@ -552,14 +568,23 @@ index bd2b09f..b9e9e45 100644
      });
  
      add_tab(localization::get("settings.tabs.gameplay"), [this](Rml::Element* content) {
-@@ -661,6 +694,7 @@ SettingsWindow::SettingsWindow()
+@@ -661,7 +694,16 @@ SettingsWindow::SettingsWindow()
                   localization::get("settings.gameplay.fast_text_help"));
          add_bool(left, right, current.enhancements.pillarboxNes, localization::get("settings.gameplay.nes_aspect"),
                   localization::get("settings.gameplay.nes_aspect_help"));
 +        add_mod_settings(mods::SettingsPage::Gameplay, left, right);
      });
++
++    if (mods::has_settings(mods::SettingsPage::Mouse)) {
++        add_tab(localization::get("mods.tabs.mouse"), [this](Rml::Element* content) {
++            auto& left = add_child<Pane>(content, Pane::Type::Controlled);
++            auto& right = add_child<Pane>(content, Pane::Type::Uncontrolled);
++            add_mod_settings(mods::SettingsPage::Mouse, left, right);
++        });
++    }
  }
  
+ void SettingsWindow::hide(bool close) {
 diff --git a/pc/src/ui/ui.cpp b/pc/src/ui/ui.cpp
 index 0493a26..436a4c3 100644
 --- a/pc/src/ui/ui.cpp

@@ -38,12 +38,13 @@ index 0000000..20a6b51
 +#endif
 diff --git a/pc/res/lang/mods/mouse_enhancements.json b/pc/res/lang/mods/mouse_enhancements.json
 new file mode 100644
-index 0000000..6ab9897
+index 0000000..8fd8d35
 --- /dev/null
 +++ b/pc/res/lang/mods/mouse_enhancements.json
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +{
-+  "mods.mouse.section": "Mouse Enhancements",
++  "mods.mouse.controls_section": "Mouse Controls",
++  "mods.mouse.glove_section": "Glove Appearance",
 +  "mods.mouse.right_click_aim": "Right-Click Faces Cursor",
 +  "mods.mouse.right_click_aim_help": "Right-click turns your character toward the mouse cursor before interacting, so you act on what you clicked.",
 +  "mods.mouse.in_menus": "Glove in Menus",
@@ -300,10 +301,10 @@ index 4fa3430..f4bb4ff 100644
  } // extern "C"
 diff --git a/pc/src/mods/mouse_enhancements.cpp b/pc/src/mods/mouse_enhancements.cpp
 new file mode 100644
-index 0000000..a339e9f
+index 0000000..f0d9baf
 --- /dev/null
 +++ b/pc/src/mods/mouse_enhancements.cpp
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,108 @@
 +// Mouse Enhancements: options for the 3D glove drawn as the mouse cursor (size, flip, rotation, click point,
 +// back-of-glove view with a tilt click, click speed, idle hiding, use in menus), right-click aiming, and two fixes
 +// (the glove blinking while scenery shaders compile, and system keys hiding it). Defaults match the original game.
@@ -390,12 +391,14 @@ index 0000000..a339e9f
 +}
 +
 +void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
-+    if (page != acgc::mods::SettingsPage::Controls) {
++    if (page != acgc::mods::SettingsPage::Mouse) {
 +        return;
 +    }
-+    builder.add_section("mods.mouse.section");
++    builder.add_section("mods.mouse.controls_section");
 +    builder.add_bool(*s.rightClickAim, "mods.mouse.right_click_aim", "mods.mouse.right_click_aim_help");
 +    builder.add_bool(*s.inMenus, "mods.mouse.in_menus", "mods.mouse.in_menus_help");
++    builder.add_int(*s.hideSeconds, "mods.mouse.hide_seconds", "mods.mouse.hide_seconds_help", 1, " s");
++    builder.add_section("mods.mouse.glove_section");
 +    builder.add_bool(*s.turnOver, "mods.mouse.turn_over", "mods.mouse.turn_over_help");
 +    builder.add_int(*s.size, "mods.mouse.size", "mods.mouse.size_help", 4);
 +    builder.add_bool(*s.flipX, "mods.mouse.flip_x", "mods.mouse.flip_help");
@@ -405,7 +408,6 @@ index 0000000..a339e9f
 +    builder.add_int(*s.shiftY, "mods.mouse.shift_y", "mods.mouse.shift_help", 1, "%");
 +    builder.add_int(*s.clickTilt, "mods.mouse.click_tilt", "mods.mouse.click_tilt_help", 5, "°");
 +    builder.add_int(*s.clickSpeed, "mods.mouse.click_speed", "mods.mouse.click_speed_help", 10, "%");
-+    builder.add_int(*s.hideSeconds, "mods.mouse.hide_seconds", "mods.mouse.hide_seconds_help", 1, " s");
 +}
 +} // namespace
 +

@@ -10,7 +10,7 @@ Every option is off by default, or matches the original game, until you change i
 
 | Mod | What it does | Where its settings are |
 |---|---|---|
-| Mouse Enhancements | Glove size, mirroring, rotation and click point; a back-of-glove view with a tilt click; click speed; how long before the glove hides; using the glove in menus; right-click turning your character toward the cursor before interacting. Also fixes the glove blinking while you walk, and Print Screen or modifier keys hiding it. | Controls, Device, Options, Mouse Enhancements |
+| Mouse Enhancements | Glove size, mirroring, rotation and click point; a back-of-glove view with a tilt click; click speed; how long before the glove hides; using the glove in menus; right-click turning your character toward the cursor before interacting. Also fixes the glove blinking while you walk, and Print Screen or modifier keys hiding it. | Settings, Mouse (a tab that appears when this mod is on) |
 | Audio Mutes | Separate mutes for music, sound effects and villager voices, each with a hotkey, and small icons in the lower left while muted. | Settings, Audio, Mute; hotkeys under Controls, Keyboard, Hotkeys |
 | Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause. | Settings, Gameplay |
 | Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. | Controls, Keyboard, Hotkeys |
@@ -31,7 +31,7 @@ What the installer does:
 - Before replacing anything it copies each file into a nookery-mods-backup folder inside your Nookery folder and checks the copy. The untouched official files are kept in nookery-mods-backup\original.
 - It installs a Nookery.exe that contains every mod, the mods' text and style files, and a mods.json listing the mods you ticked. Mods you didn't tick stay switched off and add nothing to the game.
 
-Run it again to change which mods are on, or press Uninstall to restore the official files. Your saves and config.json are never touched; mod settings in config.json are simply ignored by plain Nookery.
+Run it again to change which mods are on, or press Uninstall to restore the official files. To update, run the installer from a newer release: it recognises earlier versions of these mods and replaces them, keeping your selection ticked. Your saves and config.json are never touched; mod settings in config.json are simply ignored by plain Nookery.
 
 The installer also works from a command prompt: install_mods.py --list shows the mod ids, and install_mods.py --game FOLDER --mods mouse_enhancements,instant_text installs a selection without the window.
 

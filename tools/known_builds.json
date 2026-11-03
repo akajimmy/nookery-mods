@@ -1,0 +1,7 @@
+{
+  "comment": "SHA-256 of every modded Nookery.exe this repo has shipped or handed out for testing. The installer treats these as an earlier version of the mods and upgrades them. build_release.py adds each new build.",
+  "modded_exe_sha256": [
+    "201A84D12C039276B95B66A0B5948CE0643C4702FE66AFDA3617923B9074FF9A",
+    "1766D19FF4D76791DF19162471678EBE0DABC030A475FA70526A82D8F9675396"
+  ]
+}
