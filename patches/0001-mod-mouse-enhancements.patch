@@ -296,7 +296,7 @@ index 4fa3430..f4bb4ff 100644
  } // extern "C"
 diff --git a/pc/src/mods/mouse_enhancements.cpp b/pc/src/mods/mouse_enhancements.cpp
 new file mode 100644
-index 0000000..08bf96a
+index 0000000..7286d4e
 --- /dev/null
 +++ b/pc/src/mods/mouse_enhancements.cpp
 @@ -0,0 +1,122 @@
@@ -321,12 +321,12 @@ index 0000000..08bf96a
 +enum Scope { kScopeOutOfMenus, kScopeInMenus, kScopeEverywhere };
 +
 +// The glove look for each style. Enhanced shows the back of a right hand at half size, pointing top-left with the
-+// click point on the fingertip (measured at 2560x1440), and tilts into the world on click at double speed.
++// click point on the fingertip (measured at 2560x1440), and tilts 35 degrees into the world on click at 250% speed.
 +struct Look {
 +    int size, flip_x, flip_y, rotation, shift_x, shift_y, turn_over, click_tilt, click_speed;
 +};
 +constexpr Look kVanilla = { 64, 0, 0, 0, 0, 0, 0, -45, 100 };
-+constexpr Look kEnhanced = { 32, 0, 0, -6, 4, -82, 1, -45, 200 };
++constexpr Look kEnhanced = { 32, 0, 0, -6, 4, -82, 1, -35, 250 };
 +
 +struct Settings {
 +    std::unique_ptr<Var<int>> style, scope, hideSeconds;
