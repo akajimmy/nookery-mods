@@ -4,6 +4,8 @@
 
 ![AI-assisted](https://img.shields.io/badge/AI--assisted-Claude%20Code-blueviolet) ![licence MIT](https://img.shields.io/badge/licence-MIT-blue)
 
+![The Enhanced cursor in town](docs/images/cursor-field.png) ![The Enhanced cursor in the inventory](docs/images/cursor-menu.png)
+
 You choose which mods to install, and every option can be changed from the game's menus. Mods you don't install change nothing.
 
 ## The mods
@@ -14,6 +16,20 @@ You choose which mods to install, and every option can be changed from the game'
 | Audio Mutes | Separate mutes for music, sound effects and villager voices, each with a hotkey, and small icons in the lower left while muted. | Settings, Audio, Mute; hotkeys under Controls, Keyboard, Hotkeys |
 | Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause. | Settings, Gameplay |
 | Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. | Controls, Keyboard, Hotkeys |
+
+## Screenshots
+
+Mouse Enhancements adds a Mouse tab to Settings:
+
+![Settings, Mouse tab](docs/images/settings-mouse.png)
+
+Audio Mutes adds a Mute section to Settings, Audio:
+
+![Settings, Audio tab with the Mute section](docs/images/settings-audio.png)
+
+Instant Text adds two options to Settings, Gameplay:
+
+![Settings, Gameplay tab with Instant Text and Skip Text Pauses](docs/images/settings-gameplay.png)
 
 ## Download and install (Windows)
 
