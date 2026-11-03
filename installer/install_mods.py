@@ -259,23 +259,36 @@ def run_gui(manifest: dict) -> int:
             row=row + 1, column=0, columnspan=2, sticky="w", padx=(24, 0))
         row += 2
 
-    def act(action) -> None:
+    def act(action, closing_note: str) -> None:
+        """Run an install or uninstall; on success show what happened and close, on failure stay open."""
         if not folder.get():
             messagebox.showwarning("Nookery Mods", "Choose your Nookery folder first.")
             return
+        messages: list[str] = []
+
+        def record(text: str) -> None:
+            messages.append(text)
+            log(text)
+
         try:
-            action(Game(Path(folder.get()), manifest))
+            action(Game(Path(folder.get()), manifest), record)
         except InstallError as error:
             log(f"Error: {error}")
             messagebox.showerror("Nookery Mods", str(error))
+            return
+        summary = messages[-1] if messages else "Done."
+        messagebox.showinfo("Nookery Mods", f"{summary}\n\n{closing_note}".strip())
+        root.destroy()
 
     buttons = tk.Frame(frame)
     buttons.grid(row=row, column=0, columnspan=2, sticky="w", pady=10)
     tk.Button(buttons, text="Install / update selection",
-              command=lambda: act(lambda game: install(game, [m for m, v in checks.items() if v.get()], log))
-              ).pack(side="left")
+              command=lambda: act(
+                  lambda game, out: install(game, [m for m, v in checks.items() if v.get()], out),
+                  "If you haven't yet, turn off the update check in Nookery's Settings, or the updater will replace "
+                  "the modded build.")).pack(side="left")
     tk.Button(buttons, text="Uninstall (restore original)",
-              command=lambda: act(lambda game: uninstall(game, log))).pack(side="left", padx=(8, 0))
+              command=lambda: act(lambda game, out: uninstall(game, out), "")).pack(side="left", padx=(8, 0))
     log_box.grid(row=row + 1, column=0, columnspan=2, sticky="we")
 
     default = HERE.parent
