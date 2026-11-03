@@ -1,6 +1,6 @@
 # Nookery Mods
 
-**Four optional quality-of-life mods for Nookery, the Animal Crossing (GameCube) PC port.**
+**Four optional quality-of-life mods for [Nookery](https://github.com/flyngmt/ACGC-PC-Port), the Animal Crossing (GameCube) PC port by FlyingMeta.**
 
 ![AI-assisted](https://img.shields.io/badge/AI--assisted-Claude%20Code-blueviolet) ![licence MIT](https://img.shields.io/badge/licence-MIT-blue)
 
@@ -91,6 +91,20 @@ A build made this way switches on every mod it contains. To switch some off with
 
 To write your own mod, add a file under pc/src/mods that calls ACGC_REGISTER_MOD; the comments in pc/include/acgc/mods.hpp describe the hooks for settings, menu options, hotkeys and overlays.
 
-## Credits and licence
+## Credits
 
-Nookery is by FlyingMeta and contributors, built on the ac-decomp decompilation by ACreTeam. These mods are MIT-licensed (see LICENSE); Nookery's own licence notice is in THIRD_PARTY_NOTICES.md and must go with any build you share. No game files are included: Nookery loads them from your own disc image.
+These mods are small additions to other people's much larger work. All the credit for Animal Crossing running on PC goes to them.
+
+- **[Nookery](https://github.com/flyngmt/ACGC-PC-Port)** by [FlyingMeta](https://github.com/flyngmt) and its [contributors](https://github.com/flyngmt/ACGC-PC-Port/graphs/contributors): the PC port these mods build on. Every mod here is a patch to Nookery's code.
+- **[ac-decomp](https://github.com/ACreTeam/ac-decomp)** by [ACreTeam](https://github.com/ACreTeam): the decompilation of Animal Crossing that Nookery is built on. Nookery also credits [Cuyler](https://github.com/Cuyler36) for sharing the code of the Deluxe mod and for help with how the game works.
+- **[Aurora](https://github.com/encounter/aurora)** and **[Borealis](https://github.com/encounter/borealis)** by [Encounter (Luke Street)](https://github.com/encounter): the GameCube platform layer and the app framework Nookery runs on, including the settings menus these mods add to.
+- **[FixNES](https://github.com/FIX94/fixNES)** by [FIX94](https://github.com/FIX94): the NES emulator inside Nookery.
+- Nookery's own credits also thank [Tom Lube](https://github.com/tomlube) for testing, the [Dusklight](https://github.com/TwilitRealm/dusklight) team, [Rainy Ram](https://bsky.app/profile/rainyr.am) for the Nookery icon and in-game signs, YourPalFox for the earlier logo, and the Animal Crossing Modding Discord. See the Credits section of [Nookery's README](https://github.com/flyngmt/ACGC-PC-Port#credits).
+
+Animal Crossing is a trademark of Nintendo. These mods are an unofficial fan project, not affiliated with or endorsed by Nintendo or by the Nookery project.
+
+## Licence
+
+These mods are MIT-licensed (see LICENSE). The release build includes Nookery and the open-source libraries it uses; THIRD_PARTY_NOTICES.md lists each one with its authors and licence, and the licenses folder has every licence in full. Those notices must go with any build you share.
+
+No Nintendo game files are included anywhere in this repository or the release: Nookery loads all game data from your own disc image at runtime. The screenshots show the game running with these mods.

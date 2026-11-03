@@ -95,6 +95,7 @@ def main() -> None:
 
     for doc in ("README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"):
         shutil.copy2(REPO / doc, stage / doc)
+    shutil.copytree(REPO / "licenses", stage / "licenses")
     shutil.copy2(REPO / "installer" / "install_mods.py", stage / "install_mods.py")
     shutil.copy2(REPO / "installer" / "Install Nookery Mods.bat", stage / "Install Nookery Mods.bat")
 
