@@ -1,0 +1,552 @@
+diff --git a/pc/include/mods/mouse_glove.h b/pc/include/mods/mouse_glove.h
+new file mode 100644
+index 0000000..761045a
+--- /dev/null
++++ b/pc/include/mods/mouse_glove.h
+@@ -0,0 +1,29 @@
++#ifndef MODS_MOUSE_GLOVE_H
++#define MODS_MOUSE_GLOVE_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Mouse Glove mod: options for the 3D glove drawn as the mouse cursor. Defaults match the original glove. */
++typedef struct {
++    int size;         /* Glove height in 480-line game units (original 64) */
++    int flip_x;       /* 1 = mirror left-right */
++    int flip_y;       /* 1 = mirror top-bottom */
++    int rotation;     /* Clockwise degrees, applied after flipping, about the click point */
++    int shift_x;      /* Moves the click point right within the glove image, percent of its size */
++    int shift_y;      /* Moves the click point down within the glove image, percent of its size */
++    int turn_over;    /* 1 = render the 3D glove turned over, showing its other side */
++    int hide_seconds; /* Hide the glove after this many idle seconds, 0 = never (original 5) */
++    int click_tilt;   /* Degrees a turned-over glove tilts on click; negative tilts the other way */
++    int click_speed;  /* Click animation speed, percent (original 100) */
++    int in_menus;     /* 1 = draw this glove instead of the menu hand while pointing with the mouse in menus */
++} ModMouseGlove;
++
++extern ModMouseGlove g_mod_mouse_glove;
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/pc/res/lang/mods/mouse_glove.json b/pc/res/lang/mods/mouse_glove.json
+new file mode 100644
+index 0000000..9fec9bb
+--- /dev/null
++++ b/pc/res/lang/mods/mouse_glove.json
+@@ -0,0 +1,7 @@
++{
++  "mods.mouse_glove.section": "Mouse Glove",
++  "mods.mouse_glove.turn_over": "Show Back of Glove",
++  "mods.mouse_glove.turn_over_help": "Turn the 3D glove over so its back faces you. Clicks tilt it into the world instead of playing the poke animation. Size, flip, rotation and click point are set in config.json.",
++  "mods.mouse_glove.in_menus": "Glove in Menus",
++  "mods.mouse_glove.in_menus_help": "Use this glove as the pointer in the inventory and other menus. Grabbing and holding items still show the menu hand, at the glove's size."
++}
+diff --git a/pc/src/acgc_game_pointer.cpp b/pc/src/acgc_game_pointer.cpp
+index e6585c7..61a44fa 100644
+--- a/pc/src/acgc_game_pointer.cpp
++++ b/pc/src/acgc_game_pointer.cpp
+@@ -1,4 +1,5 @@
+ #include "acgc/game_pointer.hpp"
++#include "mods/mouse_glove.h"
+ #include <aurora/pad.hpp>
+ #include <algorithm>
+ #include <cmath>
+@@ -12,11 +13,29 @@ constexpr int kPriority = routed::kGameLayerPriority + 2;
+ // The game's STICK_MIN, measured after PADClamp. A stationary deflection cannot
+ // steal ownership again after pointer movement establishes a new reference.
+ constexpr float kStickThresholdSquared = 98.f;
+-constexpr uint64_t kHandTimeoutNs = 5'000'000'000;
+ 
+ uint32_t button_mask(uint8_t button) {
+     return button >= 1 && button <= 5 ? 1u << (button - 1) : 0;
+ }
++
++// Modifiers and Print Screen are used for screenshot shortcuts and other system chords, so they shouldn't hide the
++// mouse glove. Bound keys still take over through the pad bindings below.
++bool ignored_activity_key(SDL_Scancode scancode) {
++    switch (scancode) {
++        case SDL_SCANCODE_PRINTSCREEN:
++        case SDL_SCANCODE_LSHIFT:
++        case SDL_SCANCODE_RSHIFT:
++        case SDL_SCANCODE_LCTRL:
++        case SDL_SCANCODE_RCTRL:
++        case SDL_SCANCODE_LALT:
++        case SDL_SCANCODE_RALT:
++        case SDL_SCANCODE_LGUI:
++        case SDL_SCANCODE_RGUI:
++            return true;
++        default:
++            return false;
++    }
++}
+ } // namespace
+ 
+ GamePointer::~GamePointer() {
+@@ -165,7 +184,8 @@ void GamePointer::process(const Event& input) {
+         return;
+     }
+     if (input.source.kind == routed::InputSource::Kind::Keyboard) {
+-        if (const auto* key = input.payload.get_if<Event::KeyChanged>(); key && key->pressed) {
++        if (const auto* key = input.payload.get_if<Event::KeyChanged>();
++            key && key->pressed && !key->repeat && !ignored_activity_key(key->scancode)) {
+             keyboard_activity();
+         }
+     }
+@@ -262,7 +282,10 @@ void GamePointer::begin_tick(uint32_t tick, uint64_t nowNs) {
+     if (mActivity || (mOwner == GAME_POINTER_MOUSE && held)) {
+         mLastActivity = nowNs;
+     }
+-    const bool visible = mRunning && mInside && mOwner == GAME_POINTER_MOUSE && nowNs - mLastActivity < kHandTimeoutNs;
++    // input.cursorHideSeconds: 0 keeps the glove until another input takes over.
++    const int hideSeconds = g_mod_mouse_glove.hide_seconds;
++    const bool timedOut = hideSeconds > 0 && nowNs - mLastActivity >= uint64_t(hideSeconds) * 1'000'000'000;
++    const bool visible = mRunning && mInside && mOwner == GAME_POINTER_MOUSE && !timedOut;
+     mScrollRemainder += mScrollY;
+     const int steps = static_cast<int>(mScrollRemainder);
+     mScrollRemainder -= steps;
+diff --git a/pc/src/aurora_mouse_cursor.cpp b/pc/src/aurora_mouse_cursor.cpp
+index 4fa3430..52b5476 100644
+--- a/pc/src/aurora_mouse_cursor.cpp
++++ b/pc/src/aurora_mouse_cursor.cpp
+@@ -4,6 +4,7 @@
+ #include "m_hand_ovl_h.h"
+ #include "game_pointer.h"
+ #include "pc_platform.h"
++#include "mods/mouse_glove.h"
+ 
+ #include <aurora/gfx.h>
+ #include <dolphin/gx.h>
+@@ -11,10 +12,16 @@
+ #include <dolphin/mtx.h>
+ 
+ #include <algorithm>
++#include <cmath>
++#include <cstdlib>
+ #include <vector>
+ 
+ namespace {
+-constexpr int kDrawSize = 64;
++// The glove is captured at 64 game units (or the draw size, if larger) and scaled down when drawn smaller.
++constexpr int kCaptureSize = 64;
++// Normalized texture position of the fingertip for a 64-unit glove: the original drew the quad at
++// pointer + offset - 16 units, scaled by two into the 640x480 space.
++constexpr f32 kHotspotBase = 16.0f;
+ struct CursorFrame {
+     std::vector<u8> data;
+     GXTexObj texture{};
+@@ -25,18 +32,25 @@ CursorFrame s_frames[AURORA_MOUSE_CURSOR_FRAME_COUNT];
+ int s_renderWidth = 0;
+ int s_renderHeight = 0;
+ u16 s_textureSize = AURORA_MOUSE_CURSOR_VIEW_SIZE;
++int s_captureSize = 0;
+ f32 s_offsetX = 0.0f;
+ f32 s_offsetY = 0.0f;
++
++int draw_size() {
++    return std::clamp(g_mod_mouse_glove.size, 16, 192);
++}
+ }
+ 
+ extern "C" {
+ 
+ int aurora_mouse_cursor_needs_capture(int frame) {
+-    if (s_renderWidth != g_pc_window_w || s_renderHeight != g_pc_window_h) {
++    const int captureSize = std::max(kCaptureSize, draw_size());
++    if (s_renderWidth != g_pc_window_w || s_renderHeight != g_pc_window_h || s_captureSize != captureSize) {
+         aurora_mouse_cursor_invalidate();
+         s_renderWidth = g_pc_window_w;
+         s_renderHeight = g_pc_window_h;
+-        const int pixels = (kDrawSize * s_renderHeight + 479) / 480;
++        s_captureSize = captureSize;
++        const int pixels = (captureSize * s_renderHeight + 479) / 480;
+         // Align to RGBA8 tiles and stay within the display-list scissor range.
+         s_textureSize = std::clamp((pixels + 3) & ~3, AURORA_MOUSE_CURSOR_VIEW_SIZE, 1020);
+     }
+@@ -55,6 +69,10 @@ void aurora_mouse_cursor_invalidate(void) {
+ }
+ 
+ void aurora_mouse_cursor_capture_begin(void) {
++    // Wait for the glove's pipelines instead of skipping its draws. Otherwise the capture is only marked complete
++    // once no pipelines are queued anywhere, so while walking compiles scenery pipelines the glove is recaptured
++    // every frame and blinks whenever one of those captures loses a draw.
++    AuroraSetDrawsBlocking(true);
+     GXCreateFrameBuffer(s_textureSize, s_textureSize);
+     GXSetPixelFmt(GX_PF_RGBA6_Z24, GX_ZC_LINEAR);
+     GXSetColorUpdate(GX_TRUE);
+@@ -76,6 +94,7 @@ void aurora_mouse_cursor_capture_end(int frame) {
+     GXPixModeSync();
+     GXRestoreFrameBuffer();
+     GXSetAlphaUpdate(GX_FALSE);
++    AuroraSetDrawsBlocking(false);
+ 
+     GXDestroyTexObj(&cached.texture);
+     GXInitTexObj(&cached.texture, cached.data.data(), s_textureSize, s_textureSize,
+@@ -84,20 +103,36 @@ void aurora_mouse_cursor_capture_end(int frame) {
+     mHD_mouse_pointer_get_offset(&s_offsetX, &s_offsetY);
+     AuroraGXSync();
+     cached.ready = true;
+-    cached.complete = aurora_get_stats()->queuedPipelines == 0;
++    cached.complete = true;
+ }
+ 
+ void aurora_mouse_cursor_draw(int frame) {
+     const GamePointerFrame* pointer = acgc_pointer_frame();
+-    if (!s_frames[frame].ready || !pointer->visible || !pointer->inside) {
++    const int texture = frame;
++    if (!s_frames[texture].ready || !pointer->visible || !pointer->inside) {
+         return;
+     }
+ 
+     const f32 aspect = pc_widescreen_get_aspect_factor();
+-    const f32 left = (1.0f - aspect) * 320.0f + (pointer->x + s_offsetX - 16.0f) * 2.0f * aspect;
+-    const f32 top = (pointer->y + s_offsetY - 16.0f) * 2.0f;
+-    const f32 right = left + kDrawSize * aspect;
+-    const f32 bottom = top + kDrawSize;
++    const f32 size = static_cast<f32>(draw_size());
++    // Fingertip in the 640x480 space, and in normalized texture coordinates. The shift settings move the anchor
++    // within the glove image, in percent of its size, before flipping and rotating.
++    const f32 tipX = (1.0f - aspect) * 320.0f + pointer->x * 2.0f * aspect;
++    const f32 tipY = pointer->y * 2.0f;
++    const f32 hotU = (kHotspotBase - s_offsetX) * 2.0f / kCaptureSize + g_mod_mouse_glove.shift_x / 100.0f;
++    const f32 hotV = (kHotspotBase - s_offsetY) * 2.0f / kCaptureSize + g_mod_mouse_glove.shift_y / 100.0f;
++    const f32 flipX = g_mod_mouse_glove.flip_x ? -1.0f : 1.0f;
++    const f32 flipY = g_mod_mouse_glove.flip_y ? -1.0f : 1.0f;
++    const f32 radians = static_cast<f32>(g_mod_mouse_glove.rotation) * 3.14159265f / 180.0f;
++    const f32 cosR = std::cos(radians);
++    const f32 sinR = std::sin(radians);
++    // Flip, then rotate clockwise (y points down), about the fingertip so it stays on the mouse position.
++    const auto corner = [&](f32 u, f32 v) {
++        const f32 x = (u - hotU) * size * flipX;
++        const f32 y = (v - hotV) * size * flipY;
++        GXPosition2f32(tipX + (x * cosR - y * sinR) * aspect, tipY + x * sinR + y * cosR);
++        GXTexCoord2f32(u, v);
++    };
+ 
+     Mtx44 projection = {
+         {2.0f / 640.0f, 0.0f, 0.0f, -1.0f},
+@@ -135,14 +170,37 @@ void aurora_mouse_cursor_draw(int frame) {
+     GXSetDstAlpha(GX_FALSE, 0);
+     GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
+     GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_AND, GX_ALWAYS, 0);
+-    GXLoadTexObj(&s_frames[frame].texture, GX_TEXMAP0);
++    GXLoadTexObj(&s_frames[texture].texture, GX_TEXMAP0);
+ 
+     GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+-    GXPosition2f32(left, top); GXTexCoord2f32(0.0f, 0.0f);
+-    GXPosition2f32(right, top); GXTexCoord2f32(1.0f, 0.0f);
+-    GXPosition2f32(right, bottom); GXTexCoord2f32(1.0f, 1.0f);
+-    GXPosition2f32(left, bottom); GXTexCoord2f32(0.0f, 1.0f);
++    corner(0.0f, 0.0f);
++    corner(1.0f, 0.0f);
++    corner(1.0f, 1.0f);
++    corner(0.0f, 1.0f);
+     GXEnd();
++
++    // Debug aid for tuning the cursor settings: NOOKERY_CURSOR_MARKER=1 draws a red cross on the click point.
++    static const bool marker = std::getenv("NOOKERY_CURSOR_MARKER") != nullptr;
++    if (marker) {
++        GXClearVtxDesc();
++        GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
++        GXSetNumTexGens(0);
++        GXSetNumChans(1);
++        GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
++        GXSetChanMatColor(GX_COLOR0A0, {255, 0, 0, 255});
++        GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
++        GXSetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
++        const auto bar = [&](f32 halfW, f32 halfH) {
++            GXBegin(GX_QUADS, GX_VTXFMT0, 4);
++            GXPosition2f32(tipX - halfW, tipY - halfH);
++            GXPosition2f32(tipX + halfW, tipY - halfH);
++            GXPosition2f32(tipX + halfW, tipY + halfH);
++            GXPosition2f32(tipX - halfW, tipY + halfH);
++            GXEnd();
++        };
++        bar(6.0f * aspect, 0.5f);
++        bar(0.5f * aspect, 6.0f);
++    }
+ }
+ 
+ } // extern "C"
+diff --git a/pc/src/mods/mouse_glove.cpp b/pc/src/mods/mouse_glove.cpp
+new file mode 100644
+index 0000000..b26e759
+--- /dev/null
++++ b/pc/src/mods/mouse_glove.cpp
+@@ -0,0 +1,76 @@
++// Mouse Glove: size, flip, rotation, click point, turn-over, idle hiding and click animation options for the 3D glove
++// drawn as the mouse cursor, and an option to use it in menus too. Defaults match the original glove.
++// The game side is in pc/src/aurora_mouse_cursor.cpp, pc/src/acgc_game_pointer.cpp and src/game/m_hand_ovl.c.
++
++#include "acgc/mods.hpp"
++#include "mods/mouse_glove.h"
++
++#include <memory>
++
++extern "C" ModMouseGlove g_mod_mouse_glove = {
++    .size = 64,
++    .flip_x = 0,
++    .flip_y = 0,
++    .rotation = 0,
++    .shift_x = 0,
++    .shift_y = 0,
++    .turn_over = 0,
++    .hide_seconds = 5,
++    .click_tilt = -45,
++    .click_speed = 100,
++    .in_menus = 0,
++};
++
++namespace {
++using borealis::config::Var;
++
++struct Settings {
++    std::unique_ptr<Var<int>> size, rotation, shiftX, shiftY, hideSeconds, clickTilt, clickSpeed;
++    std::unique_ptr<Var<bool>> flipX, flipY, turnOver, inMenus;
++} s;
++
++void create_settings(borealis::config::Registry& registry) {
++    s.size = std::make_unique<Var<int>>(registry, "input.cursorSize", 64, borealis::config::VarOptions<int>{ .min = 16, .max = 192 });
++    s.flipX = std::make_unique<Var<bool>>(registry, "input.cursorFlipX", false);
++    s.flipY = std::make_unique<Var<bool>>(registry, "input.cursorFlipY", false);
++    s.rotation =
++        std::make_unique<Var<int>>(registry, "input.cursorRotation", 0, borealis::config::VarOptions<int>{ .min = -360, .max = 360 });
++    s.shiftX =
++        std::make_unique<Var<int>>(registry, "input.cursorShiftX", 0, borealis::config::VarOptions<int>{ .min = -400, .max = 400 });
++    s.shiftY =
++        std::make_unique<Var<int>>(registry, "input.cursorShiftY", 0, borealis::config::VarOptions<int>{ .min = -400, .max = 400 });
++    s.turnOver = std::make_unique<Var<bool>>(registry, "input.cursorTurnOver", false);
++    s.hideSeconds =
++        std::make_unique<Var<int>>(registry, "input.cursorHideSeconds", 5, borealis::config::VarOptions<int>{ .min = 0, .max = 3600 });
++    s.clickTilt =
++        std::make_unique<Var<int>>(registry, "input.cursorClickTilt", -45, borealis::config::VarOptions<int>{ .min = -90, .max = 90 });
++    s.clickSpeed = std::make_unique<Var<int>>(registry, "input.cursorClickSpeed", 100,
++                                              borealis::config::VarOptions<int>{ .min = 25, .max = 1000 });
++    s.inMenus = std::make_unique<Var<bool>>(registry, "input.cursorInMenus", false);
++}
++
++void apply_settings() {
++    g_mod_mouse_glove.size = s.size->get();
++    g_mod_mouse_glove.flip_x = s.flipX->get() ? 1 : 0;
++    g_mod_mouse_glove.flip_y = s.flipY->get() ? 1 : 0;
++    g_mod_mouse_glove.rotation = s.rotation->get();
++    g_mod_mouse_glove.shift_x = s.shiftX->get();
++    g_mod_mouse_glove.shift_y = s.shiftY->get();
++    g_mod_mouse_glove.turn_over = s.turnOver->get() ? 1 : 0;
++    g_mod_mouse_glove.hide_seconds = s.hideSeconds->get();
++    g_mod_mouse_glove.click_tilt = s.clickTilt->get();
++    g_mod_mouse_glove.click_speed = s.clickSpeed->get();
++    g_mod_mouse_glove.in_menus = s.inMenus->get() ? 1 : 0;
++}
++
++void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
++    if (page == acgc::mods::SettingsPage::Controls) {
++        builder.add_section("mods.mouse_glove.section");
++        builder.add_bool(*s.turnOver, "mods.mouse_glove.turn_over", "mods.mouse_glove.turn_over_help");
++        builder.add_bool(*s.inMenus, "mods.mouse_glove.in_menus", "mods.mouse_glove.in_menus_help");
++    }
++}
++} // namespace
++
++ACGC_REGISTER_MOD(mouse_glove, .name = "Mouse Glove", .create_settings = create_settings,
++                  .apply_settings = apply_settings, .build_settings = build_settings);
+diff --git a/src/game/m_hand_ovl.c b/src/game/m_hand_ovl.c
+index 4f403a8..7d44fc0 100644
+--- a/src/game/m_hand_ovl.c
++++ b/src/game/m_hand_ovl.c
+@@ -20,8 +20,14 @@
+ #include "game_pointer.h"
+ #include "aurora_mouse_cursor.h"
+ #include "pc_platform.h"
++#include "mods/mouse_glove.h"
++#include <stdlib.h>
+ 
+ static int mouse_pointer_menu_hand_drawn;
++static int mouse_pointer_capturing;
++static f32 mouse_pointer_tilt; /* degrees, applied to a turned-over glove while capturing */
++/* Perpendicular to the turned-over idle glove's finger, which points about 39 degrees left of up in the capture. */
++#define mHD_MOUSE_FINGER_AXIS 39.0f
+ static f32 mouse_pointer_animation_frame;
+ static const f32 mouse_pointer_animation_hold_frame = 3.0f;
+ static const f32 mouse_pointer_animation_end_frame = 6.0f; // First tap returns to the idle pose.
+@@ -963,6 +969,18 @@ static void mHD_hand_shape_draw(mHD_Ovl_c* hand_ovl, GAME* game, int shadow_flag
+         }
+ 
+         Matrix_scale(0.01f, 0.01f, 0.01f, MTX_MULT);
++#ifdef MOUSE_INPUT
++        /* Turn the mouse glove over about the screen's horizontal axis so the other side of the same hand faces
++         * the camera. A 2D mirror would show the other hand instead. */
++        if (mouse_pointer_capturing && g_mod_mouse_glove.turn_over) {
++            /* Click tilt: rotate about the in-screen axis perpendicular to the idle glove's finger, which points
++             * mHD_MOUSE_FINGER_AXIS degrees from the screen's x axis, so the fingertip moves along the view z. */
++            Matrix_RotateZ(DEG2SHORT_ANGLE(mHD_MOUSE_FINGER_AXIS), MTX_MULT);
++            Matrix_RotateX(DEG2SHORT_ANGLE(mouse_pointer_tilt), MTX_MULT);
++            Matrix_RotateZ(DEG2SHORT_ANGLE(-mHD_MOUSE_FINGER_AXIS), MTX_MULT);
++            Matrix_RotateX(DEG2SHORT_ANGLE(180.0f), MTX_MULT);
++        }
++#endif
+         Matrix_rotateXYZ(mHD_ROT_X, mHD_ROT_Y, mHD_ROT_Z, MTX_MULT);
+ 
+         OPEN_DISP(graph);
+@@ -999,9 +1017,19 @@ static void mHD_hand_ovl_draw(Submenu* submenu, GAME* game) {
+     if (hand_ovl->info.type != 0) {
+         int draw_hand = TRUE;
+ #ifdef MOUSE_INPUT
+-        mouse_pointer_menu_hand_drawn = TRUE;
+-        if (submenu->overlay->tag_ovl->mouse_active) {
+-            draw_hand = acgc_pointer_frame()->visible;
++        if (!g_mod_mouse_glove.in_menus) {
++            /* Original behaviour: the menu hand follows the mouse and hides when the pointer does. */
++            mouse_pointer_menu_hand_drawn = TRUE;
++            if (submenu->overlay->tag_ovl->mouse_active) {
++                draw_hand = acgc_pointer_frame()->visible;
++            }
++        } else if (submenu->overlay->tag_ovl->mouse_active &&
++                   (hand_ovl->info.act == mHD_ACTION_SASU || hand_ovl->info.act == mHD_ACTION_SASU2)) {
++            /* While the mouse drives the menu and the hand is just pointing, the mouse glove is drawn instead, so the
++             * cursor looks the same everywhere. Grabbing, holding and other poses keep the menu hand, scaled below. */
++            draw_hand = FALSE;
++        } else {
++            mouse_pointer_menu_hand_drawn = TRUE;
+         }
+ #endif
+         f32 cos_x = cos_s(mHD_ROT_X);
+@@ -1025,11 +1053,26 @@ static void mHD_hand_ovl_draw(Submenu* submenu, GAME* game) {
+         target_pos[0] += hand_x;
+         target_pos[1] += hand_y;
+ 
++        /* The hand's 64x64 viewport, in 320x240 space. */
++        f32 view_left = (target_pos[0] + 160.0f) - 4.0f - 12.0f;
++        f32 view_top = (120.0f - target_pos[1] + 4.0f - 20.0f);
++        int view_size = 64;
++#ifdef MOUSE_INPUT
++        /* Under the mouse, draw the menu hand at the mouse glove's size (64 = original), scaled about the mouse. */
++        f32 mouse_scale = 1.0f;
++        if (tag_ovl->mouse_active) {
++            mouse_scale = g_mod_mouse_glove.size / 64.0f;
++            view_left = tag_ovl->mouse_x + (view_left - tag_ovl->mouse_x) * mouse_scale;
++            view_top = tag_ovl->mouse_y + (view_top - tag_ovl->mouse_y) * mouse_scale;
++            view_size = (int)(64.0f * mouse_scale + 0.5f);
++        }
++#endif
++
+         /* Draw hand shadow first */
+         if (draw_hand) {
+             Matrix_push();
+-            submenu->overlay->change_view_proc(graph, 80.0f, 0.0f, ((target_pos[0] + 160.0f) - 4.0f - 12.0f) * 4.0f,
+-                                               (120.0f - target_pos[1] + 4.0f - 20.0f) * 4.0f, 0, 64, 64);
++            submenu->overlay->change_view_proc(graph, 80.0f, 0.0f, view_left * 4.0f, view_top * 4.0f, 0, view_size,
++                                               view_size);
+             mHD_hand_shape_draw(hand_ovl, game, TRUE);
+             submenu->overlay->setup_view_proc(submenu, graph, 0);
+             Matrix_pull();
+@@ -1065,6 +1108,14 @@ static void mHD_hand_ovl_draw(Submenu* submenu, GAME* game) {
+                 break;
+         }
+ 
++#ifdef MOUSE_INPUT
++        /* Keep a held item in the same place relative to the scaled hand. */
++        if (tag_ovl->mouse_active) {
++            pos[0] = (tag_ovl->mouse_x - 160.0f) + (pos[0] - (tag_ovl->mouse_x - 160.0f)) * mouse_scale;
++            pos[1] = (120.0f - tag_ovl->mouse_y) + (pos[1] - (120.0f - tag_ovl->mouse_y)) * mouse_scale;
++        }
++#endif
++
+         /* Draw hand items next */
+         mHD_draw_item(submenu, graph, pos);
+         mHD_draw_mail(submenu, graph, pos);
+@@ -1073,8 +1124,8 @@ static void mHD_hand_ovl_draw(Submenu* submenu, GAME* game) {
+         /* Draw hand model last */
+         if (draw_hand) {
+             Matrix_push();
+-            submenu->overlay->change_view_proc(graph, 80.0f, 0.0f, ((target_pos[0] + 160.0f) - 4.0f - 12.0f) * 4.0f,
+-                                               (120.0f - target_pos[1] + 4.0f - 20.0f) * 4.0f, 0, 64, 64);
++            submenu->overlay->change_view_proc(graph, 80.0f, 0.0f, view_left * 4.0f, view_top * 4.0f, 0, view_size,
++                                               view_size);
+             mHD_hand_shape_draw(hand_ovl, game, FALSE);
+             submenu->overlay->setup_view_proc(submenu, graph, 0);
+             Matrix_pull();
+@@ -1108,7 +1159,8 @@ void mHD_mouse_pointer_begin_frame(void) {
+     } else if ((pressed & GAME_POINTER_LEFT) || (!holding_left && (pressed & GAME_POINTER_RIGHT))) {
+         mouse_pointer_animation_frame = 1.0f;
+     } else if (mouse_pointer_animation_frame > 0.0f) {
+-        mouse_pointer_animation_frame += mHD_animeSpdTable[mHD_ACTION_SASU] * gamePT->graph->dt_num_60fps_frames;
++        mouse_pointer_animation_frame += mHD_animeSpdTable[mHD_ACTION_SASU] * gamePT->graph->dt_num_60fps_frames *
++                                         (g_mod_mouse_glove.click_speed / 100.0f);
+         if (holding_left && mouse_pointer_animation_frame >= mouse_pointer_animation_hold_frame) {
+             mouse_pointer_animation_frame = mouse_pointer_animation_hold_frame;
+         } else if (mouse_pointer_animation_frame >= mouse_pointer_animation_end_frame) {
+@@ -1123,6 +1175,7 @@ void mHD_mouse_pointer_draw(GAME* game) {
+     static int initialized;
+     GRAPH* graph = game->graph;
+     int frame = 0;
++    int capture_frame;
+     int first_cached_frame = 0;
+     int last_cached_frame = AURORA_MOUSE_CURSOR_FRAME_COUNT / 2;
+     f32 animation_start = 1.0f;
+@@ -1152,13 +1205,34 @@ void mHD_mouse_pointer_draw(GAME* game) {
+         frame = first_cached_frame + (int)((mouse_pointer_animation_frame - animation_start) *
+                 (last_cached_frame - first_cached_frame) / (animation_end - animation_start) + 0.5f);
+     }
++    /* Debug aid for tuning the click: NOOKERY_CURSOR_PRESS=1 holds the fully pressed pose. */
++    if (getenv("NOOKERY_CURSOR_PRESS") != NULL) {
++        frame = AURORA_MOUSE_CURSOR_FRAME_COUNT / 2;
++        first_cached_frame = 0;
++        last_cached_frame = AURORA_MOUSE_CURSOR_FRAME_COUNT / 2;
++        animation_start = 1.0f;
++        animation_end = mouse_pointer_animation_hold_frame;
++    }
++    capture_frame = frame;
++    /* The game's poke animation bends the finger toward the palm, which faces away from the camera on a
++     * turned-over glove, so the finger would rise toward the screen. Keep the idle pose and tilt the whole glove
++     * about the wrist instead, so the fingertip dips into the world. */
++    mouse_pointer_tilt = 0.0f;
++    if (g_mod_mouse_glove.turn_over && frame > 0) {
++        const int held = AURORA_MOUSE_CURSOR_FRAME_COUNT / 2;
++        f32 press = frame <= held ? (f32)frame / held
++                                  : (f32)(AURORA_MOUSE_CURSOR_FRAME_COUNT - 1 - frame) /
++                                        (AURORA_MOUSE_CURSOR_FRAME_COUNT - 1 - held);
++        press = press * press * (3.0f - 2.0f * press);
++        mouse_pointer_tilt = press * g_mod_mouse_glove.click_tilt;
++    }
+ 
+-    if (aurora_mouse_cursor_needs_capture(frame)) {
++    if (aurora_mouse_cursor_needs_capture(capture_frame)) {
+         Gfx* start;
+         int texture_size = aurora_mouse_cursor_texture_size();
+         Vp* viewport = GRAPH_ALLOC_TYPE(graph, Vp, 1);
+         cKF_SkeletonInfo_R_c* keyframe = &pointer_hand.info.keyframe;
+-        f32 progress = (f32)(frame - first_cached_frame) / (last_cached_frame - first_cached_frame);
++        f32 progress = (f32)(capture_frame - first_cached_frame) / (last_cached_frame - first_cached_frame);
+         if (viewport == NULL) {
+             return;
+         }
+@@ -1174,6 +1248,9 @@ void mHD_mouse_pointer_draw(GAME* game) {
+             initialized = TRUE;
+         }
+         keyframe->frame_control.current_frame = animation_start + progress * (animation_end - animation_start);
++        if (g_mod_mouse_glove.turn_over) {
++            keyframe->frame_control.current_frame = 1.0f; /* idle pose; the click is the tilt */
++        }
+         cKF_SkeletonInfo_R_play(keyframe);
+ 
+         OPEN_DISP(graph);
+@@ -1195,11 +1272,13 @@ void mHD_mouse_pointer_draw(GAME* game) {
+         OPEN_DISP(graph);
+         gSPViewport(NOW_POLY_OPA_DISP++, viewport);
+         CLOSE_DISP(graph);
++        mouse_pointer_capturing = TRUE;
+         mHD_hand_shape_draw(&pointer_hand, game, FALSE);
++        mouse_pointer_capturing = FALSE;
+         Matrix_swap_current(previous_matrix);
+ 
+         OPEN_DISP(graph);
+-        gDPNoOpTag(NOW_POLY_OPA_DISP++, PC_NOOP_MOUSE_CAPTURE_END + frame);
++        gDPNoOpTag(NOW_POLY_OPA_DISP++, PC_NOOP_MOUSE_CAPTURE_END + capture_frame);
+         gSPEndDisplayList(NOW_POLY_OPA_DISP++);
+         gfxclose(start, NOW_POLY_OPA_DISP);
+         CLOSE_DISP(graph);

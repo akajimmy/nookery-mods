@@ -1,0 +1,321 @@
+diff --git a/pc/include/mods/instant_text.h b/pc/include/mods/instant_text.h
+new file mode 100644
+index 0000000..2a80f84
+--- /dev/null
++++ b/pc/include/mods/instant_text.h
+@@ -0,0 +1,16 @@
++#ifndef MODS_INSTANT_TEXT_H
++#define MODS_INSTANT_TEXT_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Instant Text mod. */
++extern int g_mod_instant_text;     /* 1 = fill each text window in one frame */
++extern int g_mod_skip_text_pauses; /* 1 = ignore every timed pause in dialogue */
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/pc/res/lang/mods/instant_text.json b/pc/res/lang/mods/instant_text.json
+new file mode 100644
+index 0000000..bdfb6d8
+--- /dev/null
++++ b/pc/res/lang/mods/instant_text.json
+@@ -0,0 +1,6 @@
++{
++  "mods.instant_text.label": "Instant Text",
++  "mods.instant_text.help": "Show each text box all at once, skipping the short pauses between sentences. The villager keeps speaking at the normal pace until you move on.",
++  "mods.instant_text.skip_pauses": "Skip Text Pauses",
++  "mods.instant_text.skip_pauses_help": "Ignore every timed pause written into dialogue, including the one before a page that clears itself, which may then go by too fast to read."
++}
+diff --git a/pc/src/mods/instant_text.cpp b/pc/src/mods/instant_text.cpp
+new file mode 100644
+index 0000000..2bdfaf3
+--- /dev/null
++++ b/pc/src/mods/instant_text.cpp
+@@ -0,0 +1,37 @@
++// Instant Text: shows each text box in one frame while the villager keeps speaking at the normal pace, and an
++// option to skip every timed pause. The game side is in src/game/m_msg_cursol.c_inc.
++
++#include "acgc/mods.hpp"
++#include "mods/instant_text.h"
++
++#include <memory>
++
++extern "C" int g_mod_instant_text = 0;
++extern "C" int g_mod_skip_text_pauses = 0;
++
++namespace {
++using borealis::config::Var;
++
++std::unique_ptr<Var<bool>> s_instant;
++std::unique_ptr<Var<bool>> s_skipPauses;
++
++void create_settings(borealis::config::Registry& registry) {
++    s_instant = std::make_unique<Var<bool>>(registry, "gameplay.instantText", false);
++    s_skipPauses = std::make_unique<Var<bool>>(registry, "gameplay.skipTextPauses", false);
++}
++
++void apply_settings() {
++    g_mod_instant_text = s_instant->get() ? 1 : 0;
++    g_mod_skip_text_pauses = s_skipPauses->get() ? 1 : 0;
++}
++
++void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
++    if (page == acgc::mods::SettingsPage::Gameplay) {
++        builder.add_bool(*s_instant, "mods.instant_text.label", "mods.instant_text.help");
++        builder.add_bool(*s_skipPauses, "mods.instant_text.skip_pauses", "mods.instant_text.skip_pauses_help");
++    }
++}
++} // namespace
++
++ACGC_REGISTER_MOD(instant_text, .name = "Instant Text", .create_settings = create_settings,
++                  .apply_settings = apply_settings, .build_settings = build_settings);
+diff --git a/src/game/m_msg.c b/src/game/m_msg.c
+index 7cba6f9..c822b89 100644
+--- a/src/game/m_msg.c
++++ b/src/game/m_msg.c
+@@ -13,6 +13,7 @@
+ #ifdef TARGET_PC
+ #include "pc_bswap.h"
+ #include "pc_settings.h"
++#include "mods/instant_text.h"
+ #endif
+ #ifdef MOUSE_INPUT
+ #include "game_pointer.h"
+@@ -146,6 +147,9 @@ extern void mMsg_debug_draw(gfxprint_t* gfxprint) {
+ 
+ extern void mMsg_Main(GAME* game) {
+     mMsg_Main_Window(&mMsg_window, game);
++#ifdef PC_ENHANCEMENTS
++    mMsg_instant_voice_update(&mMsg_window);
++#endif
+     mChoice_Main(&mMsg_window.choice_window, game);
+ }
+ 
+diff --git a/src/game/m_msg_cursol.c_inc b/src/game/m_msg_cursol.c_inc
+index cde4b43..75328e0 100644
+--- a/src/game/m_msg_cursol.c_inc
++++ b/src/game/m_msg_cursol.c_inc
+@@ -1,3 +1,7 @@
++#ifdef PC_ENHANCEMENTS
++static int mMsg_instant_text_active(mMsg_Window_c* msg_p);
++#endif
++
+ static int mMsg_Check_CancelOrder(mMsg_Window_c* msg_p) {
+   if (msg_p->cancelable_flag != FALSE && msg_p->cancel_flag == FALSE && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
+     if (mMsg_get_trigger() & (BUTTON_A | BUTTON_B)) {
+@@ -61,6 +65,18 @@ static int mMsg_Main_Cursol_CursolSetTime_ControlCursol(mMsg_Window_c* msg_p, in
+   if (msg_p->cancel_flag) {
+     return mMsg_RESULT_VOID;
+   }
++#ifdef PC_ENHANCEMENTS
++  /* Skip the script's timed pauses, except in exact-timing text. Instant text skips them too, but keeps a pause
++   * directly before a page clear, which is the time to read a page that clears itself. */
++  if (!mEv_IsTitleDemo() && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
++    const u8* data = msg_p->msg_data->text_buf.data;
++    const int before_clear = data[*idx_p] == CHAR_CONTROL_CODE && data[*idx_p + 1] == mFont_CONT_CODE_CLEAR;
++
++    if (g_mod_skip_text_pauses || (mMsg_instant_text_active(msg_p) && !before_clear)) {
++      return mMsg_RESULT_VOID;
++    }
++  }
++#endif
+ 
+   if (set_time > 0.0f) {
+     msg_p->cursor_timer = set_time;
+@@ -1097,6 +1113,90 @@ static int mMsg_Main_Cursol_Proc_ControlCursol(mMsg_Window_c* msg_p, int* idx_p)
+   }
+ }
+ 
++#ifdef PC_ENHANCEMENTS
++/* Instant text: the script order the text is waiting on, see mMsg_Main_Cursol_ControlCursol. */
++static struct {
++  int type; /* demo order type, -1 = not holding */
++  int idx;
++  int msg_no;
++  f32 frames;
++  f32 taken_frames;
++} mMsg_order_hold = { -1, 0, -1, 0.0f, 0.0f };
++
++/* Instant text fills the window in one frame, up to the next control code. Exact-timing text keeps its pace. */
++static int mMsg_instant_text_active(mMsg_Window_c* msg_p) {
++  return g_mod_instant_text && !mEv_IsTitleDemo() &&
++         (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0;
++}
++
++/* With instant text, the villager voice walks the visible text at the normal speaking pace on its own cursor, and
++ * keeps going while the window waits for a button. It is cut off when the page changes or the window closes. */
++static void mMsg_instant_voice_update(mMsg_Window_c* msg_p) {
++  static int voice_pos = -1;
++  static int page_start = -1;
++  static int page_msg_no = -1;
++  static f32 voice_timer = 0.0f;
++  static int forced_voice = FALSE;
++  int showing;
++  int speaking;
++
++  if (forced_voice) {
++    msg_p->force_voice_enable_flag = FALSE;
++    forced_voice = FALSE;
++  }
++
++  showing = mMsg_instant_text_active(msg_p) && msg_p->msg_data != NULL && msg_p->msg_data->data_loaded &&
++            msg_p->draw_flag && (msg_p->main_index == mMsg_INDEX_CURSOL || msg_p->main_index == mMsg_INDEX_NORMAL);
++
++  if (!showing || msg_p->msg_data->msg_no != page_msg_no || msg_p->start_text_cursor_idx != page_start) {
++    /* Cut off a voice that was still speaking the previous page. */
++    if (voice_pos >= 0 && msg_p->free_str_color_idx[3] == 1) {
++      mMsg_sound_voice_endcode_set(msg_p);
++      mMsg_Unset_NowUtter(msg_p);
++    }
++    voice_pos = -1;
++    voice_timer = 0.0f;
++    if (!showing) {
++      page_msg_no = -1;
++      page_start = -1;
++      return;
++    }
++    page_msg_no = msg_p->msg_data->msg_no;
++    page_start = msg_p->start_text_cursor_idx;
++    voice_pos = page_start;
++  }
++
++  speaking = voice_pos < msg_p->end_text_cursor_idx;
++  if (!speaking) {
++    /* Finished the page; end the voice once the text has stopped too. */
++    if (msg_p->main_index != mMsg_INDEX_CURSOL && msg_p->free_str_color_idx[3] == 1) {
++      mMsg_sound_voice_endcode_set(msg_p);
++    }
++    mMsg_Unset_NowUtter(msg_p);
++    return;
++  }
++
++  mMsg_Set_NowUtter(msg_p);
++  voice_timer -= (f32)gamePT->graph->dt_num_60fps_frames;
++  while (voice_timer <= 0.0f && voice_pos < msg_p->end_text_cursor_idx) {
++    u8 code = msg_p->msg_data->text_buf.data[voice_pos];
++    int cur = voice_pos;
++
++    voice_pos += mMsg_Set_SizeCode(msg_p, voice_pos);
++    if (code == CHAR_CONTROL_CODE || code == CHAR_MESSAGE_TAG || code == CHAR_NEW_LINE) {
++      continue;
++    }
++    /* Normal text speaks a character every 2 frames, fast text every frame. */
++    voice_timer += g_pc_settings.fast_text ? 1.0f : 2.0f;
++    if (mMsg_sound_CodeVoice(msg_p, cur)) {
++      msg_p->force_voice_enable_flag = TRUE;
++      forced_voice = TRUE;
++    }
++    break;
++  }
++}
++#endif
++
+ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+   int idx = msg_p->end_text_cursor_idx;
+   f32* cursor_timer = &msg_p->cursor_timer;
+@@ -1104,6 +1204,35 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+   int res = TRUE;
+   int utter = FALSE;
+   int processed = FALSE;
++#ifdef PC_ENHANCEMENTS
++  /* Instant text fills the window in one frame, up to the next control code. */
++  const int instant = mMsg_instant_text_active(msg_p);
++
++  /* Scripts send orders to the game (e.g. "fill in the birthday strings") and paste the result a few characters
++   * later, which at normal speed gives the receiver time to act. Instant text holds after an order until the
++   * receiver has taken it (its slot reads 0 again) plus 2 frames, capped at 30 frames for receivers that never
++   * clear their slot. */
++  if (instant && mMsg_order_hold.type >= 0) {
++    const f32 dt = (f32)gamePT->graph->dt_num_60fps_frames;
++
++    mMsg_order_hold.frames += dt;
++    if (mDemo_Get_OrderValue(mMsg_order_hold.type, mMsg_order_hold.idx) == 0) {
++      mMsg_order_hold.taken_frames += dt;
++    }
++    if (msg_p->msg_data->msg_no != mMsg_order_hold.msg_no || mMsg_order_hold.taken_frames >= 2.0f ||
++        mMsg_order_hold.frames >= 30.0f) {
++      mMsg_order_hold.type = -1;
++    }
++    else {
++      return TRUE;
++    }
++  }
++  else if (!instant) {
++    mMsg_order_hold.type = -1;
++  }
++#else
++  const int instant = FALSE;
++#endif
+ 
+ #ifdef PC_ENHANCEMENTS
+   /* B latches fast text for the rest of the message; L/R or DPAD also speed it up */
+@@ -1132,7 +1261,7 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+     msg_p->cancel_flag = TRUE;
+   }
+ 
+-  if (msg_p->cancel_flag  && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
++  if (msg_p->cancel_flag && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
+     *cursor_timer = 0.0f;
+   }
+   else if ((msg_p->status_flags & mMsg_STATUS_FLAG_FAST_TEXT) && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
+@@ -1176,10 +1305,36 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+         idx += mMsg_Set_SizeCode(msg_p, idx);
+       }
+       else if (mMsg_Main_Cursol_Check_ControlCursol(msg_p, idx)) {
++#ifdef PC_ENHANCEMENTS
++        const u8 cont_type = msg_p->msg_data->text_buf.data[idx + 1];
++        int order_type = -1;
++        int order_idx = 0;
++        u16 order_val = 0;
++
++        if (instant && cont_type >= mFont_CONT_CODE_SET_DEMO_ORDER_PLAYER &&
++            cont_type <= mFont_CONT_CODE_SET_DEMO_ORDER_QUEST) {
++          static const int demo_types[] = { mDemo_ORDER_PLAYER, mDemo_ORDER_NPC0, mDemo_ORDER_NPC1, mDemo_ORDER_NPC2,
++                                             mDemo_ORDER_QUEST };
++
++          order_type = demo_types[cont_type - mFont_CONT_CODE_SET_DEMO_ORDER_PLAYER];
++          mMsg_Get_OrderCode(msg_p, idx, &order_idx, &order_val);
++        }
++#endif
+         int proc_res = mMsg_Main_Cursol_Proc_ControlCursol(msg_p, &idx);
+ 
++#ifdef PC_ENHANCEMENTS
++        if (order_type >= 0 && order_val != 0 && proc_res == mMsg_RESULT_VOID) {
++          mMsg_order_hold.type = order_type;
++          mMsg_order_hold.idx = order_idx;
++          mMsg_order_hold.msg_no = msg_p->msg_data->msg_no;
++          mMsg_order_hold.frames = 0.0f;
++          mMsg_order_hold.taken_frames = 0.0f;
++          break;
++        }
++#endif
+         if (proc_res == mMsg_RESULT_FALSE) {
+-          if (msg_p->hide_choice_window_timer == 0 && msg_p->free_str_color_idx[3] == 1) {
++          /* With instant text the voice is still speaking here; mMsg_instant_voice_update ends it. */
++          if (!instant && msg_p->hide_choice_window_timer == 0 && msg_p->free_str_color_idx[3] == 1) {
+             mMsg_sound_voice_endcode_set(msg_p);
+           }
+ 
+@@ -1209,10 +1364,14 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+         *cursor_timer += 2.0f;
+ 
+         if  (msg_p->cancel_flag == FALSE) {
+-          if (mMsg_sound_CodeVoice(msg_p, cur_idx)) {
++          /* Instant text leaves the voice to mMsg_instant_voice_update, which speaks at the normal pace. */
++          if (!instant && mMsg_sound_CodeVoice(msg_p, cur_idx)) {
+             utter = TRUE;
+           }
+-          if (*cursor_timer > 0.0f) {
++          if (instant) {
++            *cursor_timer = 0.0f;
++          }
++          else if (*cursor_timer > 0.0f) {
+             break;
+           }
+         }

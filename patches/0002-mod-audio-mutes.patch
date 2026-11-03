@@ -1,0 +1,298 @@
+diff --git a/pc/include/mods/audio_mutes.h b/pc/include/mods/audio_mutes.h
+new file mode 100644
+index 0000000..f870809
+--- /dev/null
++++ b/pc/include/mods/audio_mutes.h
+@@ -0,0 +1,17 @@
++#ifndef MODS_AUDIO_MUTES_H
++#define MODS_AUDIO_MUTES_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Audio Mutes mod: 1 = silence that category. Read by the audio mixer (jaudio effect.c). */
++extern int g_mod_mute_music;
++extern int g_mod_mute_sfx;
++extern int g_mod_mute_voice;
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/pc/res/lang/mods/audio_mutes.json b/pc/res/lang/mods/audio_mutes.json
+new file mode 100644
+index 0000000..6d952de
+--- /dev/null
++++ b/pc/res/lang/mods/audio_mutes.json
+@@ -0,0 +1,11 @@
++{
++  "mods.audio_mutes.section": "Mute",
++  "mods.audio_mutes.music": "Mute Music",
++  "mods.audio_mutes.music_help": "Silence the background music, including town, building and event themes.",
++  "mods.audio_mutes.sfx": "Mute Sound Effects",
++  "mods.audio_mutes.sfx_help": "Silence sound effects, including footsteps, menus, tools, furniture instruments and gyroids.",
++  "mods.audio_mutes.voice": "Mute Villager Voices",
++  "mods.audio_mutes.voice_help": "Silence the animalese speech that plays while villagers talk.",
++  "mods.audio_mutes.show_icons": "Show Mute Icons",
++  "mods.audio_mutes.show_icons_help": "Show small icons in the lower left for each muted sound type."
++}
+diff --git a/pc/res/rml/mods/audio_mutes.rcss b/pc/res/rml/mods/audio_mutes.rcss
+new file mode 100644
+index 0000000..13891c2
+--- /dev/null
++++ b/pc/res/rml/mods/audio_mutes.rcss
+@@ -0,0 +1,43 @@
++body {
++    width: 100%;
++    height: 100%;
++    margin: 0;
++    padding: 0;
++    overflow: visible;
++    pointer-events: none;
++    font-family: var(--font-family-body);
++    font-size: var(--font-size-base);
++}
++
++/* Mute status icons, lower left. Each icon shows while its mute is on. */
++mute-status {
++    position: absolute;
++    display: flex;
++    align-items: center;
++    left: 20dp;
++    bottom: 20dp;
++    padding: 0.3em 0.55em;
++    gap: 0.35em;
++    color: var(--color-text);
++    background-color: var(--color-surface);
++    border: 4dp var(--color-surface-border);
++    border-radius: 1.5em;
++    box-shadow: 0 0.42em 1.17em 0.08em var(--color-shadow-soft);
++    filter: opacity(0);
++    transition: filter 0.18s cubic-in-out;
++}
++
++mute-status.on {
++    filter: opacity(1);
++}
++
++mute-icon {
++    display: none;
++    font-family: var(--font-family-icons);
++    font-size: 1.5em;
++    line-height: 1em;
++}
++
++mute-icon.on {
++    display: block;
++}
+diff --git a/pc/src/mods/audio_mutes.cpp b/pc/src/mods/audio_mutes.cpp
+new file mode 100644
+index 0000000..ab0ec6b
+--- /dev/null
++++ b/pc/src/mods/audio_mutes.cpp
+@@ -0,0 +1,147 @@
++// Audio Mutes: separate mutes for music, sound effects and villager voices, each with a hotkey, and small status
++// icons in the lower left. The mixing side is pc_group_gain in src/static/jaudio_NES/internal/effect.c.
++
++#include "acgc/mods.hpp"
++#include "mods/audio_mutes.h"
++
++#include "acgc/ui/ui.hpp"
++
++#include <borealis/ui/document.hpp>
++
++#include <memory>
++#include <string>
++
++extern "C" int g_mod_mute_music = 0;
++extern "C" int g_mod_mute_sfx = 0;
++extern "C" int g_mod_mute_voice = 0;
++
++namespace {
++using borealis::config::Var;
++
++struct Category {
++    const char* mute_key;
++    const char* hotkey_key;
++    const char* label;
++    const char* help;
++    int* flag;
++    std::unique_ptr<Var<bool>> mute;
++    std::unique_ptr<Var<std::string>> hotkey;
++};
++
++Category s_categories[] = {
++    { "audio.muteMusic", "audio.muteMusicKey", "mods.audio_mutes.music", "mods.audio_mutes.music_help",
++      &g_mod_mute_music },
++    { "audio.muteSfx", "audio.muteSfxKey", "mods.audio_mutes.sfx", "mods.audio_mutes.sfx_help", &g_mod_mute_sfx },
++    { "audio.muteVoice", "audio.muteVoiceKey", "mods.audio_mutes.voice", "mods.audio_mutes.voice_help",
++      &g_mod_mute_voice },
++};
++std::unique_ptr<Var<bool>> s_showIcons;
++bool s_iconsShown = true;
++
++void create_settings(borealis::config::Registry& registry) {
++    for (Category& category : s_categories) {
++        category.mute = std::make_unique<Var<bool>>(registry, category.mute_key, false);
++        category.hotkey = std::make_unique<Var<std::string>>(registry, category.hotkey_key, std::string());
++    }
++    s_showIcons = std::make_unique<Var<bool>>(registry, "audio.showMuteIcons", true);
++}
++
++void apply_settings() {
++    for (Category& category : s_categories) {
++        *category.flag = category.mute->get() ? 1 : 0;
++    }
++    s_iconsShown = s_showIcons->get();
++}
++
++template <int Index>
++void toggle() {
++    auto& mute = *s_categories[Index].mute;
++    mute.set(!mute.get());
++}
++
++void add_hotkeys(std::vector<acgc::mods::Hotkey>& hotkeys) {
++    hotkeys.push_back({ "mods.audio_mutes.music", s_categories[0].hotkey.get(), &toggle<0> });
++    hotkeys.push_back({ "mods.audio_mutes.sfx", s_categories[1].hotkey.get(), &toggle<1> });
++    hotkeys.push_back({ "mods.audio_mutes.voice", s_categories[2].hotkey.get(), &toggle<2> });
++}
++
++void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
++    if (page != acgc::mods::SettingsPage::Audio) {
++        return;
++    }
++    builder.add_section("mods.audio_mutes.section");
++    for (Category& category : s_categories) {
++        builder.add_bool(*category.mute, category.label, category.help);
++    }
++    builder.add_bool(*s_showIcons, "mods.audio_mutes.show_icons", "mods.audio_mutes.show_icons_help");
++}
++
++// Lower-left status icons: one per muted category, shown only while something is muted.
++class MuteStatus final : public borealis::ui::Document {
++public:
++    MuteStatus() : Document(source(), true, acgc::ui::kScopeOverlay) {
++        if (mDocument != nullptr) {
++            mBar = mDocument->GetElementById("mute-status");
++            mIcons[0] = mDocument->GetElementById("mute-music");
++            mIcons[1] = mDocument->GetElementById("mute-sfx");
++            mIcons[2] = mDocument->GetElementById("mute-voice");
++        }
++    }
++
++    void show() override {
++        if (mDocument != nullptr) {
++            mDocument->Show(Rml::ModalFlag::None, Rml::FocusFlag::None, Rml::ScrollFlag::None);
++        }
++    }
++
++    void update() override {
++        const int flags[3] = { g_mod_mute_music, g_mod_mute_sfx, g_mod_mute_voice };
++        bool any = false;
++        for (int i = 0; i < 3; ++i) {
++            const bool on = s_iconsShown && flags[i] != 0;
++            any = any || on;
++            if (mIcons[i] != nullptr && on != mShown[i]) {
++                mIcons[i]->SetClass("on", on);
++                mShown[i] = on;
++            }
++        }
++        if (mBar != nullptr && any != mAny) {
++            mBar->SetClass("on", any);
++            mAny = any;
++        }
++    }
++
++private:
++    static Rml::String source() {
++        // music_off, volume_off and voice_over_off from Material Symbols.
++        return R"RML(
++<rml>
++<head>
++    <link type="text/rcss" href="res/rml/theme.rcss" />
++    <link type="text/rcss" href="res/rml/mods/audio_mutes.rcss" />
++</head>
++<body>
++    <mute-status id="mute-status">
++        <mute-icon id="mute-music">&#xe440;</mute-icon>
++        <mute-icon id="mute-sfx">&#xe04f;</mute-icon>
++        <mute-icon id="mute-voice">&#xe94a;</mute-icon>
++    </mute-status>
++</body>
++</rml>
++)RML";
++    }
++
++    Rml::Element* mBar = nullptr;
++    Rml::Element* mIcons[3] = {};
++    bool mShown[3] = {};
++    bool mAny = false;
++};
++
++std::unique_ptr<borealis::ui::Document> create_overlay() {
++    return std::make_unique<MuteStatus>();
++}
++} // namespace
++
++ACGC_REGISTER_MOD(audio_mutes, .name = "Audio Mutes", .create_settings = create_settings,
++                  .apply_settings = apply_settings, .add_hotkeys = add_hotkeys, .build_settings = build_settings,
++                  .create_overlay = create_overlay);
+diff --git a/src/static/jaudio_NES/internal/effect.c b/src/static/jaudio_NES/internal/effect.c
+index a811528..2ea619c 100644
+--- a/src/static/jaudio_NES/internal/effect.c
++++ b/src/static/jaudio_NES/internal/effect.c
+@@ -11,6 +11,23 @@
+ #include "jaudio_NES/sub_sys.h"
+ #include "jaudio_NES/audioheaders.h"
+ #include <dolphin/os.h>
++#ifdef TARGET_PC
++#include "mods/audio_mutes.h"
++
++/* PC mute settings per group: 0 = sound effects, 1 and 3 = music (crossfade pair), 2 = furniture instruments and
++ * gyroids (counted as sound effects), 4 = villager voices. */
++static f32 pc_group_gain(s32 index) {
++    switch (index) {
++        case 1:
++        case 3:
++            return g_mod_mute_music ? 0.0f : 1.0f;
++        case 4:
++            return g_mod_mute_voice ? 0.0f : 1.0f;
++        default:
++            return g_mod_mute_sfx ? 0.0f : 1.0f;
++    }
++}
++#endif
+ 
+ static void __Nas_CallWaveProcess_Sub(sub* subtrack, s32 recalc_vol, s32 apply_bend) {
+     f32 vol;
+@@ -102,9 +119,27 @@ extern void Nas_MainCtrl(group* group) {
+         }
+     }
+ 
++#ifdef TARGET_PC
++    {
++        static f32 applied_gain[AUDIO_GROUP_MAX] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
++        const s32 index = (s32)(group - AG.groups);
++        f32 gain = 1.0f;
++        if (index >= 0 && index < AUDIO_GROUP_MAX) {
++            gain = pc_group_gain(index);
++            if (gain != applied_gain[index]) {
++                applied_gain[index] = gain;
++                group->flags.recalculate_volume = TRUE; /* apply a setting change immediately */
++            }
++        }
++        if (group->flags.recalculate_volume) {
++            group->applied_fade_volume = group->fade_volume * group->fade_volume_scale * gain;
++        }
++    }
++#else
+     if (group->flags.recalculate_volume) {
+         group->applied_fade_volume = group->fade_volume * group->fade_volume_scale;
+     }
++#endif
+ 
+     for (i = 0; i < NA_GROUP_NUM; i++) {
+         if (group->subtracks[i]->enabled == TRUE) {

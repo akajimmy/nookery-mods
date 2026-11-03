@@ -1,0 +1,500 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 20c0953..fb94038 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -305,6 +305,9 @@ set(PC_SOURCES
+     ${PC_ROOT}/src/acgc_game_editor_host.cpp
+     ${PC_ROOT}/src/acgc_game_text.cpp
+ )
++# Mods register themselves (see pc/include/acgc/mods.hpp); each lives in its own files here.
++file(GLOB PC_MOD_SOURCES CONFIGURE_DEPENDS "${PC_ROOT}/src/mods/*.c" "${PC_ROOT}/src/mods/*.cpp")
++list(APPEND PC_SOURCES ${PC_MOD_SOURCES})
+ 
+ # =============================================================================
+ # fixNES — vendored NES emulator (MIT License, by FIX94)
+diff --git a/pc/include/acgc/mods.hpp b/pc/include/acgc/mods.hpp
+new file mode 100644
+index 0000000..af1c43a
+--- /dev/null
++++ b/pc/include/acgc/mods.hpp
+@@ -0,0 +1,73 @@
++#pragma once
++
++// Small mod framework: lets self-contained mods add settings, menu options, hotkeys and overlay documents
++// without editing shared files, so any combination of mods can be merged together.
++//
++// A mod lives in pc/src/mods/ (picked up by CMake automatically), keeps its strings in
++// pc/res/lang/mods/<mod>.json, and registers itself once:
++//
++//     ACGC_REGISTER_MOD(my_mod, .name = "My Mod", .create_settings = ..., .apply_settings = ...);
++
++#include <borealis/config.hpp>
++#include <borealis/config_codec.hpp> // so mods can create Var<T> settings
++
++#include <SDL3/SDL_events.h>
++
++#include <memory>
++#include <string>
++#include <vector>
++
++namespace borealis::ui {
++class Document;
++}
++
++namespace acgc::mods {
++
++// Settings pages a mod can add options to.
++enum class SettingsPage {
++    Audio,    // Settings > Audio
++    Gameplay, // Settings > Gameplay
++    Controls, // Controls > Device > Options
++};
++
++// Adds a mod's options to a settings page. Keys are localization keys.
++class SettingsBuilder {
++public:
++    virtual ~SettingsBuilder() = default;
++    virtual void add_section(const char* label_key) = 0;
++    virtual void add_bool(borealis::config::Var<bool>& variable, const char* label_key, const char* help_key) = 0;
++};
++
++// A rebindable key, listed under Controls > Keyboard > Hotkeys.
++struct Hotkey {
++    const char* label_key;
++    borealis::config::Var<std::string>* key; // SDL scancode name, "" = unbound
++    void (*on_press)();
++};
++
++struct Mod {
++    const char* name = nullptr;
++    // Create the mod's config Vars on the registry. Called whenever the settings are (re)created, before loading.
++    void (*create_settings)(borealis::config::Registry& registry) = nullptr;
++    // Copy settings into whatever the game code reads. Called after loading and after every settings change.
++    void (*apply_settings)() = nullptr;
++    void (*add_hotkeys)(std::vector<Hotkey>& hotkeys) = nullptr;
++    void (*build_settings)(SettingsPage page, SettingsBuilder& builder) = nullptr;
++    // A passive document shown over the game, such as a HUD element.
++    std::unique_ptr<borealis::ui::Document> (*create_overlay)() = nullptr;
++};
++
++int register_mod(const Mod& mod);
++
++// Hooks called by the port.
++void create_settings(borealis::config::Registry& registry);
++void apply_settings();
++std::vector<Hotkey> hotkeys();
++void handle_hotkey_event(const SDL_Event& event);
++void build_settings(SettingsPage page, SettingsBuilder& builder);
++void create_overlays();
++
++} // namespace acgc::mods
++
++#define ACGC_REGISTER_MOD(id, ...)                                                                                     \
++    [[maybe_unused]] static const int acgc_mod_registered_##id = ::acgc::mods::register_mod(::acgc::mods::Mod{__VA_ARGS__})
+diff --git a/pc/res/lang/mods/base.json b/pc/res/lang/mods/base.json
+new file mode 100644
+index 0000000..f8f2ff6
+--- /dev/null
++++ b/pc/res/lang/mods/base.json
+@@ -0,0 +1,4 @@
++{
++  "mods.hotkeys.page": "Hotkeys",
++  "mods.hotkeys.inline_help": "Select a hotkey, then press the key to assign to it. Backspace or Delete clears it, Escape cancels."
++}
+diff --git a/pc/src/acgc_settings.cpp b/pc/src/acgc_settings.cpp
+index c9bfd80..31f4fc2 100644
+--- a/pc/src/acgc_settings.cpp
++++ b/pc/src/acgc_settings.cpp
+@@ -1,4 +1,5 @@
+ #include "acgc/settings.hpp"
++#include "acgc/mods.hpp"
+ #include <aurora/pad.hpp>
+ #include <aurora/gfx.h>
+ #include <borealis/config_codec.hpp>
+@@ -265,6 +266,7 @@ UserSettings::Input::Input(borealis::config::Registry& registry)
+ UserSettings::UserSettings()
+     : backend(registry), video(registry), enhancements(registry), audio(registry), input(registry)
+ {
++    mods::create_settings(registry);
+ }
+ 
+ UserSettings& settings()
+@@ -363,6 +365,7 @@ void apply_settings_bridge(bool refreshGameplay)
+         aBC_RequestNearbyRefresh();
+     }
+     pc_audio_set_master_volume(g_pc_settings.master_volume);
++    mods::apply_settings();
+ }
+ 
+ void apply_ui_scale()
+diff --git a/pc/src/aurora_main.cpp b/pc/src/aurora_main.cpp
+index a34ce5c..b1898fb 100644
+--- a/pc/src/aurora_main.cpp
++++ b/pc/src/aurora_main.cpp
+@@ -11,6 +11,7 @@
+ #include <tracy/Tracy.hpp>
+ 
+ #include "pc_assets.h"
++#include "acgc/mods.hpp"
+ #include "pc_platform.h"
+ #include "acgc/game_editor.hpp"
+ #include "acgc/game_pointer.hpp"
+@@ -117,6 +118,7 @@ bool ac_aurora_begin_frame() {
+                 event->sdl.key.key == SDLK_F2) {
+                 pc_speedhack_toggle();
+             }
++            acgc::mods::handle_hotkey_event(event->sdl);
+             acgc::ui::handle_event(event->sdl);
+             acgc::input::pointer_window_event(event->sdl);
+         } else if (event->type == AURORA_PAUSED || event->type == AURORA_UNPAUSED) {
+diff --git a/pc/src/mods/mods.cpp b/pc/src/mods/mods.cpp
+new file mode 100644
+index 0000000..cf2ff49
+--- /dev/null
++++ b/pc/src/mods/mods.cpp
+@@ -0,0 +1,87 @@
++#include "acgc/mods.hpp"
++
++#include "acgc/settings.hpp"
++
++#include <aurora/binding.hpp>
++#include <borealis/ui/document.hpp>
++#include <borealis/ui/ui.hpp>
++
++#include <SDL3/SDL_keyboard.h>
++
++namespace acgc::mods {
++namespace {
++
++std::vector<Mod>& registered() {
++    // Function-local so registration from other files' static initializers is safe.
++    static std::vector<Mod> mods;
++    return mods;
++}
++
++} // namespace
++
++int register_mod(const Mod& mod) {
++    registered().push_back(mod);
++    return static_cast<int>(registered().size());
++}
++
++void create_settings(borealis::config::Registry& registry) {
++    for (const Mod& mod : registered()) {
++        if (mod.create_settings != nullptr) {
++            mod.create_settings(registry);
++        }
++    }
++}
++
++void apply_settings() {
++    for (const Mod& mod : registered()) {
++        if (mod.apply_settings != nullptr) {
++            mod.apply_settings();
++        }
++    }
++}
++
++std::vector<Hotkey> hotkeys() {
++    std::vector<Hotkey> result;
++    for (const Mod& mod : registered()) {
++        if (mod.add_hotkeys != nullptr) {
++            mod.add_hotkeys(result);
++        }
++    }
++    return result;
++}
++
++void handle_hotkey_event(const SDL_Event& event) {
++    // Keys pressed while the controls screen is waiting for a binding belong to that binding.
++    if (event.type != SDL_EVENT_KEY_DOWN || event.key.repeat || aurora::binding::capturing()) {
++        return;
++    }
++    bool pressed = false;
++    for (const Hotkey& hotkey : hotkeys()) {
++        const std::string& name = hotkey.key->get();
++        if (!name.empty() && SDL_GetScancodeFromName(name.c_str()) == event.key.scancode) {
++            hotkey.on_press();
++            pressed = true;
++        }
++    }
++    if (pressed) {
++        save_settings();
++    }
++}
++
++void build_settings(SettingsPage page, SettingsBuilder& builder) {
++    for (const Mod& mod : registered()) {
++        if (mod.build_settings != nullptr) {
++            mod.build_settings(page, builder);
++        }
++    }
++}
++
++void create_overlays() {
++    for (const Mod& mod : registered()) {
++        if (mod.create_overlay != nullptr) {
++            borealis::ui::push_document(mod.create_overlay(), true, true);
++        }
++    }
++}
++
++} // namespace acgc::mods
+diff --git a/pc/src/ui/controller_config.cpp b/pc/src/ui/controller_config.cpp
+index a921ccd..0c62eb4 100644
+--- a/pc/src/ui/controller_config.cpp
++++ b/pc/src/ui/controller_config.cpp
+@@ -13,6 +13,7 @@
+ #include "acgc/input_profiles.hpp"
+ #include "acgc/controller_ports.hpp"
+ #include "acgc/settings.hpp"
++#include "acgc/mods.hpp"
+ #include <SDL3/SDL_gamepad.h>
+ #include <SDL3/SDL_keyboard.h>
+ #include <algorithm>
+@@ -187,6 +188,32 @@ struct BindingControl {
+     ControlId control;
+     int direction;
+     Rml::String label;
++    // Set for mod hotkeys, which are stored as a scancode name in a setting instead of a pad binding.
++    borealis::config::Var<std::string>* hotkey = nullptr;
++};
++
++constexpr int kHotkeyGroup = 5;
++
++Rml::String hotkey_label(const std::string& name) {
++    return name.empty() ? tr("controller.binding.not_bound") : Rml::String(name);
++}
++
++// Adds mod options to Controls > Device > Options, styled like the options there.
++class ModOptionsBuilder final : public mods::SettingsBuilder {
++public:
++    explicit ModOptionsBuilder(Pane& pane) : mPane(pane) {}
++
++    void add_section(const char* label_key) override {
++        mPane.add_section(tr(label_key));
++    }
++
++    void add_bool(borealis::config::Var<bool>& variable, const char* label_key, const char* help_key) override {
++        mPane.add_child<BoolButton>(bind(variable, { .key = tr(label_key) }));
++        mPane.add_text(tr(help_key));
++    }
++
++private:
++    Pane& mPane;
+ };
+ 
+ class BindingRow final : public Component {
+@@ -199,6 +226,9 @@ class BindingRow final : public Component {
+                 if (mCapturing()) {
+                     return tr("controller.binding.waiting");
+                 }
++                if (control.hotkey != nullptr) {
++                    return hotkey_label(control.hotkey->get());
++                }
+                 Rml::String label;
+                 for (const auto& binding : input::editable_bindings(target, control.control, control.direction)) {
+                     if (!selected_half(binding, control.direction)) {
+@@ -258,7 +288,12 @@ class BindingsPane final : public Pane {
+             mControls.push_back({ control, direction, std::move(label) });
+         };
+         const auto& controls = aurora::pad::controls();
+-        if (group == 0 || group == 1) {
++        mHotkeys = group == kHotkeyGroup;
++        if (mHotkeys) {
++            for (const auto& hotkey : mods::hotkeys()) {
++                mControls.push_back({ {}, 0, tr(hotkey.label_key), hotkey.key });
++            }
++        } else if (group == 0 || group == 1) {
+             const std::vector<PADButton> buttons =
+                 group == 0
+                     ? std::vector<PADButton>{ PAD_BUTTON_A, PAD_BUTTON_B,     PAD_BUTTON_X,
+@@ -301,7 +336,18 @@ class BindingsPane final : public Pane {
+                                           : physical.source == mTarget.id;
+             const bool cancelled = (key != nullptr && key->scancode == SDL_SCANCODE_ESCAPE) ||
+                                    (matches && button != nullptr && button->button == SDL_GAMEPAD_BUTTON_BACK);
+-            if (index >= 0 && !cancelled) {
++            if (index >= 0 && !cancelled && mControls[index].hotkey != nullptr) {
++                // Hotkeys take keyboard keys only; Backspace or Delete clears one.
++                if (key == nullptr) {
++                    start_capture(index);
++                } else {
++                    const bool clear = key->scancode == SDL_SCANCODE_BACKSPACE || key->scancode == SDL_SCANCODE_DELETE;
++                    mControls[index].hotkey->set(clear ? std::string() : std::string(SDL_GetScancodeName(key->scancode)));
++                    mSaveFailed = !save_settings();
++                    mRebuild = true;
++                    mFocusRow = index;
++                }
++            } else if (index >= 0 && !cancelled) {
+                 if (!matches) {
+                     start_capture(index);
+                 } else {
+@@ -325,8 +371,7 @@ class BindingsPane final : public Pane {
+             mFocusRow = -1;
+         }
+         root()->SetClass("save-failed", mSaveFailed);
+-        set_text_content(mStatus,
+-                         mSaveFailed ? tr("controller.save_failed_help") : tr("controller.binding.inline_help"));
++        set_text_content(mStatus, mSaveFailed ? tr("controller.save_failed_help") : help_text());
+         Pane::update();
+     }
+ 
+@@ -350,6 +395,10 @@ class BindingsPane final : public Pane {
+         mSaveFailed = !input::save_profiles();
+     }
+ 
++    Rml::String help_text() const {
++        return tr(mHotkeys ? "mods.hotkeys.inline_help" : "controller.binding.inline_help");
++    }
++
+     void rebuild() {
+         clear();
+         mRows.clear();
+@@ -359,7 +408,7 @@ class BindingsPane final : public Pane {
+                 [this, index] { start_capture(static_cast<int>(index)); });
+             mRows.push_back(&row);
+         }
+-        mStatus = add_text(tr("controller.binding.inline_help"));
++        mStatus = add_text(help_text());
+         mStatus->SetClass("binding-help", true);
+         auto& retry = add_button(tr("controller.binding.save"));
+         retry.root()->SetClass("binding-save-retry", true);
+@@ -376,6 +425,7 @@ class BindingsPane final : public Pane {
+     int mFocusRow = -1;
+     bool mRebuild = false;
+     bool mSaveFailed = false;
++    bool mHotkeys = false;
+ };
+ 
+ ControllerConfigWindow::ControllerConfigWindow()
+@@ -469,6 +519,10 @@ void ControllerConfigWindow::build_device(Rml::Element* content) {
+     options.add_child<BoolButton>(
+         bind(settings().input.allowBackgroundInput, { .key = tr("controller.options.background_input") }));
+     options.add_text(tr("controller.options.background_input_help"));
++    {
++        ModOptionsBuilder builder(options);
++        mods::build_settings(mods::SettingsPage::Controls, builder);
++    }
+ #else
+     options.add_child<BoolButton>(
+         bind(settings().input.touchControls, { .key = tr("controller.options.touch_controls") }));
+@@ -550,6 +604,10 @@ void ControllerConfigWindow::build_bindings(Rml::Element* content, bool keyboard
+         categories.register_control(categories.add_group_button({ .text = tr(groups[group]) }), bindings,
+                                     [&bindings, group](Pane&) { bindings.show_group(group); });
+     }
++    if (keyboard && !mods::hotkeys().empty()) {
++        categories.register_control(categories.add_group_button({ .text = tr("mods.hotkeys.page") }), bindings,
++                                    [&bindings](Pane&) { bindings.show_group(kHotkeyGroup); });
++    }
+     categories.add_section(tr("controller.options.section"));
+     categories.add_child<BoolButton>(BoolButton::Props{
+         .key = tr("controller.binding.allow_conflicts"),
+diff --git a/pc/src/ui/localization.cpp b/pc/src/ui/localization.cpp
+index 99d8a76..3a3df52 100644
+--- a/pc/src/ui/localization.cpp
++++ b/pc/src/ui/localization.cpp
+@@ -9,7 +9,9 @@
+ #include <borealis/log.hpp>
+ #include <nlohmann/json.hpp>
+ 
++#include <algorithm>
+ #include <cctype>
++#include <filesystem>
+ #include <functional>
+ #include <map>
+ #include <set>
+@@ -108,6 +110,18 @@ void load() noexcept
+                  borealis::io::fs_path_to_string(englishPath));
+         return;
+     }
++    // Each mod keeps its English strings in lang/mods/<mod>.json so mods never edit the same catalog.
++    std::error_code error;
++    std::vector<std::filesystem::path> modCatalogs;
++    for (const auto& entry : std::filesystem::directory_iterator(directory / "mods", error)) {
++        if (entry.is_regular_file() && entry.path().extension() == ".json") {
++            modCatalogs.push_back(entry.path());
++        }
++    }
++    std::sort(modCatalogs.begin(), modCatalogs.end());
++    for (const auto& path : modCatalogs) {
++        load_catalog(path, sEnglish);
++    }
+     if (!kDetectPreferredLocale) {
+         return;
+     }
+diff --git a/pc/src/ui/settings.cpp b/pc/src/ui/settings.cpp
+index bd2b09f..c4cd8e0 100644
+--- a/pc/src/ui/settings.cpp
++++ b/pc/src/ui/settings.cpp
+@@ -1,6 +1,7 @@
+ #include <borealis/ui/component.hpp>
+ #include <borealis/ui/button.hpp>
+ #include "acgc/ui/settings.hpp"
++#include "acgc/mods.hpp"
+ #include "acgc/ui/scrolling_background.hpp"
+ 
+ #include "acgc/data.hpp"
+@@ -46,6 +47,29 @@ void add_bool(Pane& left, Pane& right, borealis::config::Var<bool>& variable, Rm
+                           right, [help = std::move(help)](Pane& pane) { pane.add_text(help); });
+ }
+ 
++// Adds mod options to a settings tab, styled like the tab's own options.
++class ModSettingsBuilder final : public mods::SettingsBuilder {
++public:
++    ModSettingsBuilder(Pane& left, Pane& right) : mLeft(left), mRight(right) {}
++
++    void add_section(const char* label_key) override {
++        mLeft.add_section(localization::get(label_key));
++    }
++
++    void add_bool(borealis::config::Var<bool>& variable, const char* label_key, const char* help_key) override {
++        ui::add_bool(mLeft, mRight, variable, localization::get(label_key), localization::get(help_key));
++    }
++
++private:
++    Pane& mLeft;
++    Pane& mRight;
++};
++
++void add_mod_settings(mods::SettingsPage page, Pane& left, Pane& right) {
++    ModSettingsBuilder builder(left, right);
++    mods::build_settings(page, builder);
++}
++
+ constexpr std::array kUiScales = { 50, 75, 0, 125, 150, 175, 200 };
+ 
+ Rml::String ui_scale_label(int percent) {
+@@ -618,6 +642,7 @@ SettingsWindow::SettingsWindow()
+                                                   .suffix = "%",
+                                               })),
+             right, [](Pane& pane) { pane.add_text(localization::get("settings.audio.master_volume_help")); });
++        add_mod_settings(mods::SettingsPage::Audio, left, right);
+     });
+ 
+     add_tab(localization::get("settings.tabs.gameplay"), [this](Rml::Element* content) {
+@@ -661,6 +686,7 @@ SettingsWindow::SettingsWindow()
+                  localization::get("settings.gameplay.fast_text_help"));
+         add_bool(left, right, current.enhancements.pillarboxNes, localization::get("settings.gameplay.nes_aspect"),
+                  localization::get("settings.gameplay.nes_aspect_help"));
++        add_mod_settings(mods::SettingsPage::Gameplay, left, right);
+     });
+ }
+ 
+diff --git a/pc/src/ui/ui.cpp b/pc/src/ui/ui.cpp
+index 0493a26..436a4c3 100644
+--- a/pc/src/ui/ui.cpp
++++ b/pc/src/ui/ui.cpp
+@@ -1,4 +1,5 @@
+ #include "acgc/ui/ui.hpp"
++#include "acgc/mods.hpp"
+ #include "acgc/ui/menu_bar.hpp"
+ #include "acgc/ui/overlay.hpp"
+ #include "acgc/ui/localization.hpp"
+@@ -97,6 +98,7 @@ bool initialize() noexcept {
+     sInitialized = true;
+     push_document(std::make_unique<MenuBar>(), false);
+     push_document(std::make_unique<Overlay>(), true, true);
++    mods::create_overlays();
+     push_document(std::make_unique<TouchControls>(), false, true);
+     return true;
+ }
