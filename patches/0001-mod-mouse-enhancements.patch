@@ -1,9 +1,9 @@
 diff --git a/pc/include/mods/mouse_enhancements.h b/pc/include/mods/mouse_enhancements.h
 new file mode 100644
-index 0000000..20a6b51
+index 0000000..4c23e17
 --- /dev/null
 +++ b/pc/include/mods/mouse_enhancements.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,36 @@
 +#ifndef MODS_MOUSE_ENHANCEMENTS_H
 +#define MODS_MOUSE_ENHANCEMENTS_H
 +
@@ -11,8 +11,9 @@ index 0000000..20a6b51
 +extern "C" {
 +#endif
 +
-+/* Mouse Enhancements mod: options for the 3D glove drawn as the mouse cursor, and right-click aiming.
-+ * Defaults match the original game. */
++/* Mouse Enhancements mod. The game reads these each frame; mod_mouse_select_context fills in the glove's look for
++ * the current context (Enhanced or Vanilla style, depending on the settings and whether a menu is open). With the
++ * mod off, every value matches the original game. */
 +typedef struct {
 +    int enabled;         /* 1 = the mod is switched on; also turns on its blink and system-key fixes */
 +    int size;            /* Glove height in 480-line game units (original 64) */
@@ -31,6 +32,9 @@ index 0000000..20a6b51
 +
 +extern ModMouseEnhancements g_mod_mouse;
 +
++/* Choose the glove's look for this frame: in_menu = 1 while a menu is open. */
++void mod_mouse_select_context(int in_menu);
++
 +#ifdef __cplusplus
 +}
 +#endif
@@ -38,35 +42,26 @@ index 0000000..20a6b51
 +#endif
 diff --git a/pc/res/lang/mods/mouse_enhancements.json b/pc/res/lang/mods/mouse_enhancements.json
 new file mode 100644
-index 0000000..8fd8d35
+index 0000000..1229fe2
 --- /dev/null
 +++ b/pc/res/lang/mods/mouse_enhancements.json
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,17 @@
 +{
-+  "mods.mouse.controls_section": "Mouse Controls",
-+  "mods.mouse.glove_section": "Glove Appearance",
++  "mods.mouse.section": "Cursor",
++  "mods.mouse.style": "Cursor Style",
++  "mods.mouse.style_help": "Enhanced shows the back of a smaller glove pointing to the top left, with the click on its fingertip, and tilts it into the world when you click. Vanilla is the original glove.",
++  "mods.mouse.style.vanilla": "Vanilla",
++  "mods.mouse.style.enhanced": "Enhanced",
++  "mods.mouse.scope": "Show Enhanced Cursor",
++  "mods.mouse.scope_help": "Where the cursor style and the glove are used. In Menus and Everywhere also use the glove as the pointer in the inventory and other menus; grabbing and holding items still show the menu hand, at the glove's size.",
++  "mods.mouse.scope.out_of_menus": "Out of Menus",
++  "mods.mouse.scope.in_menus": "In Menus",
++  "mods.mouse.scope.everywhere": "Everywhere",
++  "mods.mouse.hide_seconds": "Hide Cursor After",
++  "mods.mouse.hide_seconds_help": "Hide the cursor after this many seconds without mouse movement, or never. The original is 5 seconds.",
++  "mods.mouse.hide_seconds.never": "Never",
 +  "mods.mouse.right_click_aim": "Right-Click Faces Cursor",
-+  "mods.mouse.right_click_aim_help": "Right-click turns your character toward the mouse cursor before interacting, so you act on what you clicked.",
-+  "mods.mouse.in_menus": "Glove in Menus",
-+  "mods.mouse.in_menus_help": "Use the mouse glove as the pointer in the inventory and other menus. Grabbing and holding items still show the menu hand, at the glove's size.",
-+  "mods.mouse.turn_over": "Show Back of Glove",
-+  "mods.mouse.turn_over_help": "Turn the 3D glove over so its back faces you. Clicks tilt it into the world instead of playing the poke animation.",
-+  "mods.mouse.size": "Glove Size",
-+  "mods.mouse.size_help": "Height of the glove in game units. The original is 64.",
-+  "mods.mouse.flip_x": "Mirror Left-Right",
-+  "mods.mouse.flip_y": "Mirror Top-Bottom",
-+  "mods.mouse.flip_help": "Mirror the glove picture. A mirror also swaps which hand it looks like.",
-+  "mods.mouse.rotation": "Glove Rotation",
-+  "mods.mouse.rotation_help": "Turn the glove clockwise, about the click point.",
-+  "mods.mouse.shift_x": "Click Point Left-Right",
-+  "mods.mouse.shift_y": "Click Point Up-Down",
-+  "mods.mouse.shift_help": "Move where the click lands within the glove, as a percentage of its size, to put it on the fingertip. With Show Back of Glove at size 32, about 4 and -82 work.",
-+  "mods.mouse.click_tilt": "Click Tilt",
-+  "mods.mouse.click_tilt_help": "How far the turned-over glove tilts when you click. Change the sign if it tilts toward you.",
-+  "mods.mouse.click_speed": "Click Speed",
-+  "mods.mouse.click_speed_help": "Speed of the click animation. The original is 100%.",
-+  "mods.mouse.hide_seconds": "Hide Glove After",
-+  "mods.mouse.hide_seconds_help": "Hide the glove after this many seconds without mouse movement. 0 never hides it. The original is 5."
++  "mods.mouse.right_click_aim_help": "Right-click turns your character toward the mouse cursor before interacting, so you act on what you clicked."
 +}
 diff --git a/pc/src/acgc_game_pointer.cpp b/pc/src/acgc_game_pointer.cpp
 index e6585c7..30ccda4 100644
@@ -301,13 +296,13 @@ index 4fa3430..f4bb4ff 100644
  } // extern "C"
 diff --git a/pc/src/mods/mouse_enhancements.cpp b/pc/src/mods/mouse_enhancements.cpp
 new file mode 100644
-index 0000000..f0d9baf
+index 0000000..08bf96a
 --- /dev/null
 +++ b/pc/src/mods/mouse_enhancements.cpp
-@@ -0,0 +1,108 @@
-+// Mouse Enhancements: options for the 3D glove drawn as the mouse cursor (size, flip, rotation, click point,
-+// back-of-glove view with a tilt click, click speed, idle hiding, use in menus), right-click aiming, and two fixes
-+// (the glove blinking while scenery shaders compile, and system keys hiding it). Defaults match the original game.
+@@ -0,0 +1,122 @@
++// Mouse Enhancements: an Enhanced cursor style (the back of a half-size glove pointing top-left, with a tilt click),
++// where to use it (out of menus, in menus, everywhere), how long before the cursor hides, right-click aiming, and two
++// fixes (the glove blinking while scenery shaders compile, and system keys hiding it).
 +// The game side is in pc/src/aurora_mouse_cursor.cpp, pc/src/acgc_game_pointer.cpp, src/game/m_hand_ovl.c and
 +// src/game/m_controller.c.
 +
@@ -318,96 +313,110 @@ index 0000000..f0d9baf
 +
 +#include <memory>
 +
-+extern "C" ModMouseEnhancements g_mod_mouse = {
-+    .enabled = 0,
-+    .size = 64,
-+    .flip_x = 0,
-+    .flip_y = 0,
-+    .rotation = 0,
-+    .shift_x = 0,
-+    .shift_y = 0,
-+    .turn_over = 0,
-+    .hide_seconds = 5,
-+    .click_tilt = -45,
-+    .click_speed = 100,
-+    .in_menus = 0,
-+    .right_click_aim = 0,
-+};
-+
 +namespace {
 +using borealis::config::Var;
 +using borealis::config::VarOptions;
 +
-+struct Settings {
-+    std::unique_ptr<Var<int>> size, rotation, shiftX, shiftY, hideSeconds, clickTilt, clickSpeed;
-+    std::unique_ptr<Var<bool>> flipX, flipY, turnOver, inMenus, rightClickAim;
-+} s;
++enum Style { kStyleVanilla, kStyleEnhanced };
++enum Scope { kScopeOutOfMenus, kScopeInMenus, kScopeEverywhere };
 +
-+std::unique_ptr<Var<int>> make_int(borealis::config::Registry& registry, const char* key, int value, int min,
-+                                   int max) {
-+    return std::make_unique<Var<int>>(registry, key, value, VarOptions<int>{ .min = min, .max = max });
-+}
++// The glove look for each style. Enhanced shows the back of a right hand at half size, pointing top-left with the
++// click point on the fingertip (measured at 2560x1440), and tilts into the world on click at double speed.
++struct Look {
++    int size, flip_x, flip_y, rotation, shift_x, shift_y, turn_over, click_tilt, click_speed;
++};
++constexpr Look kVanilla = { 64, 0, 0, 0, 0, 0, 0, -45, 100 };
++constexpr Look kEnhanced = { 32, 0, 0, -6, 4, -82, 1, -45, 200 };
++
++struct Settings {
++    std::unique_ptr<Var<int>> style, scope, hideSeconds;
++    std::unique_ptr<Var<bool>> rightClickAim;
++} s;
++int s_style = kStyleEnhanced;
++int s_scope = kScopeEverywhere;
++int s_inMenu = 0;
 +
 +void create_settings(borealis::config::Registry& registry) {
-+    s.rightClickAim = std::make_unique<Var<bool>>(registry, "input.rightClickFaceCursor", false);
-+    s.inMenus = std::make_unique<Var<bool>>(registry, "input.cursorInMenus", false);
-+    s.turnOver = std::make_unique<Var<bool>>(registry, "input.cursorTurnOver", false);
-+    s.flipX = std::make_unique<Var<bool>>(registry, "input.cursorFlipX", false);
-+    s.flipY = std::make_unique<Var<bool>>(registry, "input.cursorFlipY", false);
-+    s.size = make_int(registry, "input.cursorSize", 64, 16, 192);
-+    s.rotation = make_int(registry, "input.cursorRotation", 0, -180, 180);
-+    s.shiftX = make_int(registry, "input.cursorShiftX", 0, -400, 400);
-+    s.shiftY = make_int(registry, "input.cursorShiftY", 0, -400, 400);
-+    s.clickTilt = make_int(registry, "input.cursorClickTilt", -45, -90, 90);
-+    s.clickSpeed = make_int(registry, "input.cursorClickSpeed", 100, 25, 1000);
-+    s.hideSeconds = make_int(registry, "input.cursorHideSeconds", 5, 0, 3600);
++    s.style = std::make_unique<Var<int>>(registry, "input.cursorStyle", static_cast<int>(kStyleEnhanced),
++                                         VarOptions<int>{ .min = kStyleVanilla, .max = kStyleEnhanced });
++    s.scope = std::make_unique<Var<int>>(registry, "input.cursorScope", static_cast<int>(kScopeEverywhere),
++                                         VarOptions<int>{ .min = kScopeOutOfMenus, .max = kScopeEverywhere });
++    s.hideSeconds =
++        std::make_unique<Var<int>>(registry, "input.cursorHideSeconds", 0, VarOptions<int>{ .min = 0, .max = 99 });
++    s.rightClickAim = std::make_unique<Var<bool>>(registry, "input.rightClickFaceCursor", true);
 +}
 +
-+void apply_settings() {
-+    const int oldTurnOver = g_mod_mouse.turn_over;
-+    const int oldClickTilt = g_mod_mouse.click_tilt;
-+
-+    // Only called while the mod is switched on (see mods.json), so this also enables its fixes.
-+    g_mod_mouse.enabled = 1;
-+    g_mod_mouse.size = s.size->get();
-+    g_mod_mouse.flip_x = s.flipX->get() ? 1 : 0;
-+    g_mod_mouse.flip_y = s.flipY->get() ? 1 : 0;
-+    g_mod_mouse.rotation = s.rotation->get();
-+    g_mod_mouse.shift_x = s.shiftX->get();
-+    g_mod_mouse.shift_y = s.shiftY->get();
-+    g_mod_mouse.turn_over = s.turnOver->get() ? 1 : 0;
-+    g_mod_mouse.hide_seconds = s.hideSeconds->get();
-+    g_mod_mouse.click_tilt = s.clickTilt->get();
-+    g_mod_mouse.click_speed = s.clickSpeed->get();
-+    g_mod_mouse.in_menus = s.inMenus->get() ? 1 : 0;
-+    g_mod_mouse.right_click_aim = s.rightClickAim->get() ? 1 : 0;
-+
-+#ifdef MOUSE_INPUT
-+    // The glove picture is captured once per pose; recapture it when a setting changes how it is rendered.
-+    if (g_mod_mouse.turn_over != oldTurnOver || g_mod_mouse.click_tilt != oldClickTilt) {
-+        aurora_mouse_cursor_invalidate();
-+    }
-+#endif
-+}
++void apply_settings();
 +
 +void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
 +    if (page != acgc::mods::SettingsPage::Mouse) {
 +        return;
 +    }
-+    builder.add_section("mods.mouse.controls_section");
++    builder.add_section("mods.mouse.section");
++    builder.add_choice(*s.style, "mods.mouse.style", "mods.mouse.style_help",
++                       { "mods.mouse.style.vanilla", "mods.mouse.style.enhanced" });
++    builder.add_choice(*s.scope, "mods.mouse.scope", "mods.mouse.scope_help",
++                       { "mods.mouse.scope.out_of_menus", "mods.mouse.scope.in_menus",
++                         "mods.mouse.scope.everywhere" });
++    builder.add_int(*s.hideSeconds, "mods.mouse.hide_seconds", "mods.mouse.hide_seconds_help", 1, " s",
++                    "mods.mouse.hide_seconds.never");
 +    builder.add_bool(*s.rightClickAim, "mods.mouse.right_click_aim", "mods.mouse.right_click_aim_help");
-+    builder.add_bool(*s.inMenus, "mods.mouse.in_menus", "mods.mouse.in_menus_help");
-+    builder.add_int(*s.hideSeconds, "mods.mouse.hide_seconds", "mods.mouse.hide_seconds_help", 1, " s");
-+    builder.add_section("mods.mouse.glove_section");
-+    builder.add_bool(*s.turnOver, "mods.mouse.turn_over", "mods.mouse.turn_over_help");
-+    builder.add_int(*s.size, "mods.mouse.size", "mods.mouse.size_help", 4);
-+    builder.add_bool(*s.flipX, "mods.mouse.flip_x", "mods.mouse.flip_help");
-+    builder.add_bool(*s.flipY, "mods.mouse.flip_y", "mods.mouse.flip_help");
-+    builder.add_int(*s.rotation, "mods.mouse.rotation", "mods.mouse.rotation_help", 1, "°");
-+    builder.add_int(*s.shiftX, "mods.mouse.shift_x", "mods.mouse.shift_help", 1, "%");
-+    builder.add_int(*s.shiftY, "mods.mouse.shift_y", "mods.mouse.shift_help", 1, "%");
-+    builder.add_int(*s.clickTilt, "mods.mouse.click_tilt", "mods.mouse.click_tilt_help", 5, "°");
-+    builder.add_int(*s.clickSpeed, "mods.mouse.click_speed", "mods.mouse.click_speed_help", 10, "%");
++}
++} // namespace
++
++extern "C" ModMouseEnhancements g_mod_mouse = {
++    .enabled = 0,
++    .size = kVanilla.size,
++    .flip_x = kVanilla.flip_x,
++    .flip_y = kVanilla.flip_y,
++    .rotation = kVanilla.rotation,
++    .shift_x = kVanilla.shift_x,
++    .shift_y = kVanilla.shift_y,
++    .turn_over = kVanilla.turn_over,
++    .hide_seconds = 5,
++    .click_tilt = kVanilla.click_tilt,
++    .click_speed = kVanilla.click_speed,
++    .in_menus = 0,
++    .right_click_aim = 0,
++};
++
++extern "C" void mod_mouse_select_context(int in_menu) {
++    s_inMenu = in_menu;
++    if (!g_mod_mouse.enabled) {
++        return;
++    }
++    const bool styled =
++        s_style == kStyleEnhanced && (in_menu ? s_scope != kScopeOutOfMenus : s_scope != kScopeInMenus);
++    const Look& look = styled ? kEnhanced : kVanilla;
++    const bool recapture = g_mod_mouse.turn_over != look.turn_over || g_mod_mouse.click_tilt != look.click_tilt;
++
++    g_mod_mouse.size = look.size;
++    g_mod_mouse.flip_x = look.flip_x;
++    g_mod_mouse.flip_y = look.flip_y;
++    g_mod_mouse.rotation = look.rotation;
++    g_mod_mouse.shift_x = look.shift_x;
++    g_mod_mouse.shift_y = look.shift_y;
++    g_mod_mouse.turn_over = look.turn_over;
++    g_mod_mouse.click_tilt = look.click_tilt;
++    g_mod_mouse.click_speed = look.click_speed;
++#ifdef MOUSE_INPUT
++    // The glove picture is captured once per pose; recapture it when the look changes how it is rendered.
++    if (recapture) {
++        aurora_mouse_cursor_invalidate();
++    }
++#endif
++}
++
++namespace {
++void apply_settings() {
++    // Only called while the mod is switched on (see mods.json), so this also enables its fixes.
++    g_mod_mouse.enabled = 1;
++    s_style = s.style->get();
++    s_scope = s.scope->get();
++    g_mod_mouse.hide_seconds = s.hideSeconds->get();
++    g_mod_mouse.right_click_aim = s.rightClickAim->get() ? 1 : 0;
++    g_mod_mouse.in_menus = s_scope != kScopeOutOfMenus;
++    mod_mouse_select_context(s_inMenu);
 +}
 +} // namespace
 +
@@ -468,7 +477,7 @@ index f026d5e..d2d0ce9 100644
  
    player = get_player_actor_withoutCheck(play);
 diff --git a/src/game/m_hand_ovl.c b/src/game/m_hand_ovl.c
-index 4f403a8..2aec4b8 100644
+index 4f403a8..c72a716 100644
 --- a/src/game/m_hand_ovl.c
 +++ b/src/game/m_hand_ovl.c
 @@ -20,8 +20,14 @@
@@ -593,7 +602,7 @@ index 4f403a8..2aec4b8 100644
          if (holding_left && mouse_pointer_animation_frame >= mouse_pointer_animation_hold_frame) {
              mouse_pointer_animation_frame = mouse_pointer_animation_hold_frame;
          } else if (mouse_pointer_animation_frame >= mouse_pointer_animation_end_frame) {
-@@ -1123,6 +1175,7 @@ void mHD_mouse_pointer_draw(GAME* game) {
+@@ -1123,11 +1175,15 @@ void mHD_mouse_pointer_draw(GAME* game) {
      static int initialized;
      GRAPH* graph = game->graph;
      int frame = 0;
@@ -601,7 +610,15 @@ index 4f403a8..2aec4b8 100644
      int first_cached_frame = 0;
      int last_cached_frame = AURORA_MOUSE_CURSOR_FRAME_COUNT / 2;
      f32 animation_start = 1.0f;
-@@ -1152,13 +1205,34 @@ void mHD_mouse_pointer_draw(GAME* game) {
+     f32 animation_end = mouse_pointer_animation_hold_frame;
+ 
++    /* Mouse Enhancements: pick the glove's look for menus or for the field. */
++    mod_mouse_select_context(game->exec == play_main && ((GAME_PLAY*)game)->submenu.open_flag);
++
+     if (mouse_pointer_menu_hand_drawn || !acgc_pointer_frame()->visible) {
+         return;
+     }
+@@ -1152,13 +1208,34 @@ void mHD_mouse_pointer_draw(GAME* game) {
          frame = first_cached_frame + (int)((mouse_pointer_animation_frame - animation_start) *
                  (last_cached_frame - first_cached_frame) / (animation_end - animation_start) + 0.5f);
      }
@@ -638,7 +655,7 @@ index 4f403a8..2aec4b8 100644
          if (viewport == NULL) {
              return;
          }
-@@ -1174,6 +1248,9 @@ void mHD_mouse_pointer_draw(GAME* game) {
+@@ -1174,6 +1251,9 @@ void mHD_mouse_pointer_draw(GAME* game) {
              initialized = TRUE;
          }
          keyframe->frame_control.current_frame = animation_start + progress * (animation_end - animation_start);
@@ -648,7 +665,7 @@ index 4f403a8..2aec4b8 100644
          cKF_SkeletonInfo_R_play(keyframe);
  
          OPEN_DISP(graph);
-@@ -1195,11 +1272,13 @@ void mHD_mouse_pointer_draw(GAME* game) {
+@@ -1195,11 +1275,13 @@ void mHD_mouse_pointer_draw(GAME* game) {
          OPEN_DISP(graph);
          gSPViewport(NOW_POLY_OPA_DISP++, viewport);
          CLOSE_DISP(graph);

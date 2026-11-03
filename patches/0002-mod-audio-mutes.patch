@@ -89,10 +89,10 @@ index 0000000..13891c2
 +}
 diff --git a/pc/src/mods/audio_mutes.cpp b/pc/src/mods/audio_mutes.cpp
 new file mode 100644
-index 0000000..ab0ec6b
+index 0000000..15183af
 --- /dev/null
 +++ b/pc/src/mods/audio_mutes.cpp
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,150 @@
 +// Audio Mutes: separate mutes for music, sound effects and villager voices, each with a hotkey, and small status
 +// icons in the lower left. The mixing side is pc_group_gain in src/static/jaudio_NES/internal/effect.c.
 +
@@ -116,6 +116,7 @@ index 0000000..ab0ec6b
 +struct Category {
 +    const char* mute_key;
 +    const char* hotkey_key;
++    const char* default_hotkey; // unbound in Nookery's default keyboard layout
 +    const char* label;
 +    const char* help;
 +    int* flag;
@@ -124,10 +125,11 @@ index 0000000..ab0ec6b
 +};
 +
 +Category s_categories[] = {
-+    { "audio.muteMusic", "audio.muteMusicKey", "mods.audio_mutes.music", "mods.audio_mutes.music_help",
++    { "audio.muteMusic", "audio.muteMusicKey", "M", "mods.audio_mutes.music", "mods.audio_mutes.music_help",
 +      &g_mod_mute_music },
-+    { "audio.muteSfx", "audio.muteSfxKey", "mods.audio_mutes.sfx", "mods.audio_mutes.sfx_help", &g_mod_mute_sfx },
-+    { "audio.muteVoice", "audio.muteVoiceKey", "mods.audio_mutes.voice", "mods.audio_mutes.voice_help",
++    { "audio.muteSfx", "audio.muteSfxKey", "N", "mods.audio_mutes.sfx", "mods.audio_mutes.sfx_help",
++      &g_mod_mute_sfx },
++    { "audio.muteVoice", "audio.muteVoiceKey", "V", "mods.audio_mutes.voice", "mods.audio_mutes.voice_help",
 +      &g_mod_mute_voice },
 +};
 +std::unique_ptr<Var<bool>> s_showIcons;
@@ -136,7 +138,8 @@ index 0000000..ab0ec6b
 +void create_settings(borealis::config::Registry& registry) {
 +    for (Category& category : s_categories) {
 +        category.mute = std::make_unique<Var<bool>>(registry, category.mute_key, false);
-+        category.hotkey = std::make_unique<Var<std::string>>(registry, category.hotkey_key, std::string());
++        category.hotkey =
++            std::make_unique<Var<std::string>>(registry, category.hotkey_key, std::string(category.default_hotkey));
 +    }
 +    s_showIcons = std::make_unique<Var<bool>>(registry, "audio.showMuteIcons", true);
 +}

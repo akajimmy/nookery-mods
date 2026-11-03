@@ -30,10 +30,10 @@ index 0000000..84efcfc
 +}
 diff --git a/pc/src/mods/save_quit.cpp b/pc/src/mods/save_quit.cpp
 new file mode 100644
-index 0000000..cfa8872
+index 0000000..8b0ceb8
 --- /dev/null
 +++ b/pc/src/mods/save_quit.cpp
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,27 @@
 +// Save and Quit: a hotkey that opens the gyroid's save screen while you're outdoors in your own town.
 +// The game side is pc_save_quit_update in src/game/m_play.c.
 +
@@ -51,7 +51,8 @@ index 0000000..cfa8872
 +std::unique_ptr<Var<std::string>> s_key;
 +
 +void create_settings(borealis::config::Registry& registry) {
-+    s_key = std::make_unique<Var<std::string>>(registry, "input.saveQuitKey", std::string());
++    // F5: unbound in Nookery's default keyboard layout, and the usual quick-save key in PC games.
++    s_key = std::make_unique<Var<std::string>>(registry, "input.saveQuitKey", std::string("F5"));
 +}
 +
 +void add_hotkeys(std::vector<acgc::mods::Hotkey>& hotkeys) {

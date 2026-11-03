@@ -4,13 +4,13 @@
 
 ![AI-assisted](https://img.shields.io/badge/AI--assisted-Claude%20Code-blueviolet) ![licence MIT](https://img.shields.io/badge/licence-MIT-blue)
 
-Every option is off by default, or matches the original game, until you change it, and every option can be changed from the game's menus.
+You choose which mods to install, and every option can be changed from the game's menus. Mods you don't install change nothing.
 
 ## The mods
 
 | Mod | What it does | Where its settings are |
 |---|---|---|
-| Mouse Enhancements | Glove size, mirroring, rotation and click point; a back-of-glove view with a tilt click; click speed; how long before the glove hides; using the glove in menus; right-click turning your character toward the cursor before interacting. Also fixes the glove blinking while you walk, and Print Screen or modifier keys hiding it. | Settings, Mouse (a tab that appears when this mod is on) |
+| Mouse Enhancements | An Enhanced cursor: the back of a smaller glove pointing to the top left, clicking on its fingertip and tilting into the world when you click. Use it out of menus, in menus (replacing the menu hand) or everywhere; keep the cursor from hiding when idle; right-click turns your character toward the cursor before interacting. Also fixes the glove blinking while you walk, and Print Screen or modifier keys hiding it. | Settings, Mouse (a tab that appears when this mod is on) |
 | Audio Mutes | Separate mutes for music, sound effects and villager voices, each with a hotkey, and small icons in the lower left while muted. | Settings, Audio, Mute; hotkeys under Controls, Keyboard, Hotkeys |
 | Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause. | Settings, Gameplay |
 | Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. | Controls, Keyboard, Hotkeys |
@@ -37,30 +37,22 @@ The installer also works from a command prompt: install_mods.py --list shows the
 
 ## Settings
 
-Every option has a control in the game's menus (see the table above). They are saved in config.json in your Nookery data folder, under these keys. Defaults are shown; they match the original game.
+Every option has a control in the game's menus (see the table above). They are saved in config.json in your Nookery data folder, under these keys.
 
-| Key | Default | Menu name | Meaning |
+| Key | Default | Menu name | Choices |
 |---|---|---|---|
-| input.rightClickFaceCursor | false | Right-Click Faces Cursor | Turn toward the cursor before a right-click interacts |
-| input.cursorInMenus | false | Glove in Menus | Use the glove as the menu pointer too |
-| input.cursorTurnOver | false | Show Back of Glove | Show the back of the glove; clicks tilt it into the world |
-| input.cursorSize | 64 | Glove Size | Glove height, in 480-line game units (16 to 192) |
-| input.cursorFlipX | false | Mirror Left-Right | Mirror the glove left to right |
-| input.cursorFlipY | false | Mirror Top-Bottom | Mirror the glove top to bottom |
-| input.cursorRotation | 0 | Glove Rotation | Degrees clockwise, turned about the click point |
-| input.cursorShiftX | 0 | Click Point Left-Right | Moves the click point within the glove, percent of its size |
-| input.cursorShiftY | 0 | Click Point Up-Down | Same, downwards |
-| input.cursorClickTilt | -45 | Click Tilt | Tilt angle for the back-of-glove click; change the sign to tilt the other way |
-| input.cursorClickSpeed | 100 | Click Speed | Click animation speed, percent |
-| input.cursorHideSeconds | 5 | Hide Glove After | Hide the glove after this many idle seconds; 0 never hides it |
+| input.cursorStyle | 1 (Enhanced) | Cursor Style | 0 Vanilla, 1 Enhanced |
+| input.cursorScope | 2 (Everywhere) | Show Enhanced Cursor | 0 Out of Menus, 1 In Menus, 2 Everywhere |
+| input.cursorHideSeconds | 0 (Never) | Hide Cursor After | 0 never hides the cursor, or 1 to 99 seconds without mouse movement (the original game uses 5) |
+| input.rightClickFaceCursor | true | Right-Click Faces Cursor | Turn toward the cursor before a right-click interacts |
 | audio.muteMusic, audio.muteSfx, audio.muteVoice | false | Mute Music, Mute Sound Effects, Mute Villager Voices | The three mutes |
-| audio.muteMusicKey, audio.muteSfxKey, audio.muteVoiceKey | none | Hotkeys | Keys that toggle the mutes, by key name such as F6 |
+| audio.muteMusicKey, audio.muteSfxKey, audio.muteVoiceKey | M, N, V | Hotkeys | Keys that toggle the mutes, by key name |
 | audio.showMuteIcons | true | Show Mute Icons | Show the lower-left icons while something is muted |
 | gameplay.instantText | false | Instant Text | Text boxes appear at once |
 | gameplay.skipTextPauses | false | Skip Text Pauses | Skip every timed pause, including before self-clearing pages |
-| input.saveQuitKey | none | Hotkeys, Save and Quit | Save and Quit key |
+| input.saveQuitKey | F5 | Hotkeys, Save and Quit | Save and Quit key |
 
-A back-of-glove setup that points to the top left at half size: Glove Size 32, Show Back of Glove on, Glove Rotation -6, Click Point Left-Right 4, Click Point Up-Down -82, Click Tilt -45. The click point values were measured at 2560 by 1440 and may need small changes on other setups.
+Hotkeys also reach the game, so a hotkey on a key bound to a game button does both. The default hotkeys are all keys Nookery's default keyboard layout leaves unbound; if you rebind your controls, keep them clear of these.
 
 ## For modders: build your own combination
 
