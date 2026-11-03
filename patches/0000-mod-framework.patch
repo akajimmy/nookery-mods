@@ -14,10 +14,10 @@ index 20c0953..fb94038 100644
  # fixNES — vendored NES emulator (MIT License, by FIX94)
 diff --git a/pc/include/acgc/mods.hpp b/pc/include/acgc/mods.hpp
 new file mode 100644
-index 0000000..af1c43a
+index 0000000..dac0749
 --- /dev/null
 +++ b/pc/include/acgc/mods.hpp
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,86 @@
 +#pragma once
 +
 +// Small mod framework: lets self-contained mods add settings, menu options, hotkeys and overlay documents
@@ -27,6 +27,11 @@ index 0000000..af1c43a
 +// pc/res/lang/mods/<mod>.json, and registers itself once:
 +//
 +//     ACGC_REGISTER_MOD(my_mod, .name = "My Mod", .create_settings = ..., .apply_settings = ...);
++//
++// A build can contain many mods, but only the ones whose id is listed in mods.json next to Nookery.exe are switched
++// on; the rest register nothing. With no mods.json, every compiled-in mod is on. The file looks like:
++//
++//     { "enabled": ["my_mod", "other_mod"] }
 +
 +#include <borealis/config.hpp>
 +#include <borealis/config_codec.hpp> // so mods can create Var<T> settings
@@ -56,6 +61,9 @@ index 0000000..af1c43a
 +    virtual ~SettingsBuilder() = default;
 +    virtual void add_section(const char* label_key) = 0;
 +    virtual void add_bool(borealis::config::Var<bool>& variable, const char* label_key, const char* help_key) = 0;
++    // A number with left/right adjust arrows; its range comes from the Var's min and max.
++    virtual void add_int(borealis::config::Var<int>& variable, const char* label_key, const char* help_key,
++                         int step = 1, const char* suffix = "") = 0;
 +};
 +
 +// A rebindable key, listed under Controls > Keyboard > Hotkeys.
@@ -66,6 +74,7 @@ index 0000000..af1c43a
 +};
 +
 +struct Mod {
++    const char* id = nullptr; // set by ACGC_REGISTER_MOD; the name used in mods.json
 +    const char* name = nullptr;
 +    // Create the mod's config Vars on the registry. Called whenever the settings are (re)created, before loading.
 +    void (*create_settings)(borealis::config::Registry& registry) = nullptr;
@@ -79,6 +88,9 @@ index 0000000..af1c43a
 +
 +int register_mod(const Mod& mod);
 +
++// Whether a compiled-in mod is switched on by mods.json.
++bool enabled(const char* id);
++
 +// Hooks called by the port.
 +void create_settings(borealis::config::Registry& registry);
 +void apply_settings();
@@ -89,8 +101,9 @@ index 0000000..af1c43a
 +
 +} // namespace acgc::mods
 +
-+#define ACGC_REGISTER_MOD(id, ...)                                                                                     \
-+    [[maybe_unused]] static const int acgc_mod_registered_##id = ::acgc::mods::register_mod(::acgc::mods::Mod{__VA_ARGS__})
++#define ACGC_REGISTER_MOD(mod_id, ...)                                                                                 \
++    [[maybe_unused]] static const int acgc_mod_registered_##mod_id =                                                   \
++        ::acgc::mods::register_mod(::acgc::mods::Mod{ .id = #mod_id, __VA_ARGS__ })
 diff --git a/pc/res/lang/mods/base.json b/pc/res/lang/mods/base.json
 new file mode 100644
 index 0000000..f8f2ff6
@@ -149,10 +162,10 @@ index a34ce5c..b1898fb 100644
          } else if (event->type == AURORA_PAUSED || event->type == AURORA_UNPAUSED) {
 diff --git a/pc/src/mods/mods.cpp b/pc/src/mods/mods.cpp
 new file mode 100644
-index 0000000..cf2ff49
+index 0000000..4cedc5c
 --- /dev/null
 +++ b/pc/src/mods/mods.cpp
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,140 @@
 +#include "acgc/mods.hpp"
 +
 +#include "acgc/settings.hpp"
@@ -161,14 +174,62 @@ index 0000000..cf2ff49
 +#include <borealis/ui/document.hpp>
 +#include <borealis/ui/ui.hpp>
 +
++#include <borealis/log.hpp>
++#include <nlohmann/json.hpp>
++
++#include <SDL3/SDL_filesystem.h>
 +#include <SDL3/SDL_keyboard.h>
++
++#include <fstream>
++#include <optional>
++#include <set>
++#include <string>
 +
 +namespace acgc::mods {
 +namespace {
 +
++constexpr borealis::Log Log{ "acgc::mods" };
++
 +std::vector<Mod>& registered() {
 +    // Function-local so registration from other files' static initializers is safe.
 +    static std::vector<Mod> mods;
++    return mods;
++}
++
++// The ids listed in mods.json next to Nookery.exe, or nullopt when there is no such file (every mod is on).
++const std::optional<std::set<std::string>>& enabled_ids() {
++    static const std::optional<std::set<std::string>> ids = []() -> std::optional<std::set<std::string>> {
++        const char* base = SDL_GetBasePath();
++        std::ifstream file(std::string(base != nullptr ? base : "") + "mods.json");
++        if (!file) {
++            return std::nullopt;
++        }
++        std::set<std::string> result;
++        try {
++            const nlohmann::json root = nlohmann::json::parse(file);
++            for (const auto& id : root.at("enabled")) {
++                result.insert(id.get<std::string>());
++            }
++        } catch (const std::exception& error) {
++            Log.warn("Could not read mods.json, so no mods are on: {}", error.what());
++        }
++        return result;
++    }();
++    return ids;
++}
++
++// The registered mods that mods.json switches on.
++const std::vector<Mod>& active() {
++    static const std::vector<Mod> mods = [] {
++        std::vector<Mod> result;
++        for (const Mod& mod : registered()) {
++            if (enabled(mod.id)) {
++                result.push_back(mod);
++                Log.info("Mod on: {}", mod.name != nullptr ? mod.name : mod.id);
++            }
++        }
++        return result;
++    }();
 +    return mods;
 +}
 +
@@ -179,8 +240,13 @@ index 0000000..cf2ff49
 +    return static_cast<int>(registered().size());
 +}
 +
++bool enabled(const char* id) {
++    const auto& ids = enabled_ids();
++    return !ids.has_value() || (id != nullptr && ids->contains(id));
++}
++
 +void create_settings(borealis::config::Registry& registry) {
-+    for (const Mod& mod : registered()) {
++    for (const Mod& mod : active()) {
 +        if (mod.create_settings != nullptr) {
 +            mod.create_settings(registry);
 +        }
@@ -188,7 +254,7 @@ index 0000000..cf2ff49
 +}
 +
 +void apply_settings() {
-+    for (const Mod& mod : registered()) {
++    for (const Mod& mod : active()) {
 +        if (mod.apply_settings != nullptr) {
 +            mod.apply_settings();
 +        }
@@ -197,7 +263,7 @@ index 0000000..cf2ff49
 +
 +std::vector<Hotkey> hotkeys() {
 +    std::vector<Hotkey> result;
-+    for (const Mod& mod : registered()) {
++    for (const Mod& mod : active()) {
 +        if (mod.add_hotkeys != nullptr) {
 +            mod.add_hotkeys(result);
 +        }
@@ -224,7 +290,7 @@ index 0000000..cf2ff49
 +}
 +
 +void build_settings(SettingsPage page, SettingsBuilder& builder) {
-+    for (const Mod& mod : registered()) {
++    for (const Mod& mod : active()) {
 +        if (mod.build_settings != nullptr) {
 +            mod.build_settings(page, builder);
 +        }
@@ -232,7 +298,7 @@ index 0000000..cf2ff49
 +}
 +
 +void create_overlays() {
-+    for (const Mod& mod : registered()) {
++    for (const Mod& mod : active()) {
 +        if (mod.create_overlay != nullptr) {
 +            borealis::ui::push_document(mod.create_overlay(), true, true);
 +        }
@@ -241,7 +307,7 @@ index 0000000..cf2ff49
 +
 +} // namespace acgc::mods
 diff --git a/pc/src/ui/controller_config.cpp b/pc/src/ui/controller_config.cpp
-index a921ccd..0c62eb4 100644
+index a921ccd..c21e159 100644
 --- a/pc/src/ui/controller_config.cpp
 +++ b/pc/src/ui/controller_config.cpp
 @@ -13,6 +13,7 @@
@@ -252,7 +318,7 @@ index a921ccd..0c62eb4 100644
  #include <SDL3/SDL_gamepad.h>
  #include <SDL3/SDL_keyboard.h>
  #include <algorithm>
-@@ -187,6 +188,32 @@ struct BindingControl {
+@@ -187,6 +188,38 @@ struct BindingControl {
      ControlId control;
      int direction;
      Rml::String label;
@@ -280,12 +346,18 @@ index a921ccd..0c62eb4 100644
 +        mPane.add_text(tr(help_key));
 +    }
 +
++    void add_int(borealis::config::Var<int>& variable, const char* label_key, const char* help_key, int step,
++                 const char* suffix) override {
++        mPane.add_child<NumberButton>(bind(variable, { .key = tr(label_key), .step = step, .suffix = suffix }));
++        mPane.add_text(tr(help_key));
++    }
++
 +private:
 +    Pane& mPane;
  };
  
  class BindingRow final : public Component {
-@@ -199,6 +226,9 @@ class BindingRow final : public Component {
+@@ -199,6 +232,9 @@ class BindingRow final : public Component {
                  if (mCapturing()) {
                      return tr("controller.binding.waiting");
                  }
@@ -295,7 +367,7 @@ index a921ccd..0c62eb4 100644
                  Rml::String label;
                  for (const auto& binding : input::editable_bindings(target, control.control, control.direction)) {
                      if (!selected_half(binding, control.direction)) {
-@@ -258,7 +288,12 @@ class BindingsPane final : public Pane {
+@@ -258,7 +294,12 @@ class BindingsPane final : public Pane {
              mControls.push_back({ control, direction, std::move(label) });
          };
          const auto& controls = aurora::pad::controls();
@@ -309,7 +381,7 @@ index a921ccd..0c62eb4 100644
              const std::vector<PADButton> buttons =
                  group == 0
                      ? std::vector<PADButton>{ PAD_BUTTON_A, PAD_BUTTON_B,     PAD_BUTTON_X,
-@@ -301,7 +336,18 @@ class BindingsPane final : public Pane {
+@@ -301,7 +342,18 @@ class BindingsPane final : public Pane {
                                            : physical.source == mTarget.id;
              const bool cancelled = (key != nullptr && key->scancode == SDL_SCANCODE_ESCAPE) ||
                                     (matches && button != nullptr && button->button == SDL_GAMEPAD_BUTTON_BACK);
@@ -329,7 +401,7 @@ index a921ccd..0c62eb4 100644
                  if (!matches) {
                      start_capture(index);
                  } else {
-@@ -325,8 +371,7 @@ class BindingsPane final : public Pane {
+@@ -325,8 +377,7 @@ class BindingsPane final : public Pane {
              mFocusRow = -1;
          }
          root()->SetClass("save-failed", mSaveFailed);
@@ -339,7 +411,7 @@ index a921ccd..0c62eb4 100644
          Pane::update();
      }
  
-@@ -350,6 +395,10 @@ class BindingsPane final : public Pane {
+@@ -350,6 +401,10 @@ class BindingsPane final : public Pane {
          mSaveFailed = !input::save_profiles();
      }
  
@@ -350,7 +422,7 @@ index a921ccd..0c62eb4 100644
      void rebuild() {
          clear();
          mRows.clear();
-@@ -359,7 +408,7 @@ class BindingsPane final : public Pane {
+@@ -359,7 +414,7 @@ class BindingsPane final : public Pane {
                  [this, index] { start_capture(static_cast<int>(index)); });
              mRows.push_back(&row);
          }
@@ -359,7 +431,7 @@ index a921ccd..0c62eb4 100644
          mStatus->SetClass("binding-help", true);
          auto& retry = add_button(tr("controller.binding.save"));
          retry.root()->SetClass("binding-save-retry", true);
-@@ -376,6 +425,7 @@ class BindingsPane final : public Pane {
+@@ -376,6 +431,7 @@ class BindingsPane final : public Pane {
      int mFocusRow = -1;
      bool mRebuild = false;
      bool mSaveFailed = false;
@@ -367,7 +439,7 @@ index a921ccd..0c62eb4 100644
  };
  
  ControllerConfigWindow::ControllerConfigWindow()
-@@ -469,6 +519,10 @@ void ControllerConfigWindow::build_device(Rml::Element* content) {
+@@ -469,6 +525,10 @@ void ControllerConfigWindow::build_device(Rml::Element* content) {
      options.add_child<BoolButton>(
          bind(settings().input.allowBackgroundInput, { .key = tr("controller.options.background_input") }));
      options.add_text(tr("controller.options.background_input_help"));
@@ -378,7 +450,7 @@ index a921ccd..0c62eb4 100644
  #else
      options.add_child<BoolButton>(
          bind(settings().input.touchControls, { .key = tr("controller.options.touch_controls") }));
-@@ -550,6 +604,10 @@ void ControllerConfigWindow::build_bindings(Rml::Element* content, bool keyboard
+@@ -550,6 +610,10 @@ void ControllerConfigWindow::build_bindings(Rml::Element* content, bool keyboard
          categories.register_control(categories.add_group_button({ .text = tr(groups[group]) }), bindings,
                                      [&bindings, group](Pane&) { bindings.show_group(group); });
      }
@@ -423,7 +495,7 @@ index 99d8a76..3a3df52 100644
          return;
      }
 diff --git a/pc/src/ui/settings.cpp b/pc/src/ui/settings.cpp
-index bd2b09f..c4cd8e0 100644
+index bd2b09f..b9e9e45 100644
 --- a/pc/src/ui/settings.cpp
 +++ b/pc/src/ui/settings.cpp
 @@ -1,6 +1,7 @@
@@ -434,7 +506,7 @@ index bd2b09f..c4cd8e0 100644
  #include "acgc/ui/scrolling_background.hpp"
  
  #include "acgc/data.hpp"
-@@ -46,6 +47,29 @@ void add_bool(Pane& left, Pane& right, borealis::config::Var<bool>& variable, Rm
+@@ -46,6 +47,37 @@ void add_bool(Pane& left, Pane& right, borealis::config::Var<bool>& variable, Rm
                            right, [help = std::move(help)](Pane& pane) { pane.add_text(help); });
  }
  
@@ -451,6 +523,14 @@ index bd2b09f..c4cd8e0 100644
 +        ui::add_bool(mLeft, mRight, variable, localization::get(label_key), localization::get(help_key));
 +    }
 +
++    void add_int(borealis::config::Var<int>& variable, const char* label_key, const char* help_key, int step,
++                 const char* suffix) override {
++        mLeft.register_control(
++            mLeft.add_child<NumberButton>(
++                bind(variable, { .key = localization::get(label_key), .step = step, .suffix = suffix })),
++            mRight, [help = localization::get(help_key)](Pane& pane) { pane.add_text(help); });
++    }
++
 +private:
 +    Pane& mLeft;
 +    Pane& mRight;
@@ -464,7 +544,7 @@ index bd2b09f..c4cd8e0 100644
  constexpr std::array kUiScales = { 50, 75, 0, 125, 150, 175, 200 };
  
  Rml::String ui_scale_label(int percent) {
-@@ -618,6 +642,7 @@ SettingsWindow::SettingsWindow()
+@@ -618,6 +650,7 @@ SettingsWindow::SettingsWindow()
                                                    .suffix = "%",
                                                })),
              right, [](Pane& pane) { pane.add_text(localization::get("settings.audio.master_volume_help")); });
@@ -472,7 +552,7 @@ index bd2b09f..c4cd8e0 100644
      });
  
      add_tab(localization::get("settings.tabs.gameplay"), [this](Rml::Element* content) {
-@@ -661,6 +686,7 @@ SettingsWindow::SettingsWindow()
+@@ -661,6 +694,7 @@ SettingsWindow::SettingsWindow()
                   localization::get("settings.gameplay.fast_text_help"));
          add_bool(left, right, current.enhancements.pillarboxNes, localization::get("settings.gameplay.nes_aspect"),
                   localization::get("settings.gameplay.nes_aspect_help"));
