@@ -4,10 +4,6 @@
 
 ![AI-assisted](https://img.shields.io/badge/AI--assisted-Claude%20Code-blueviolet) ![licence MIT](https://img.shields.io/badge/licence-MIT-blue)
 
-| In town | In the inventory |
-|---|---|
-| ![The Enhanced cursor in town](docs/images/cursor-field.png) | ![The Enhanced cursor in the inventory](docs/images/cursor-menu.png) |
-
 You choose which mods to install, and every option can be changed from the game's menus. Mods you don't install change nothing.
 
 ## The mods
@@ -20,6 +16,12 @@ You choose which mods to install, and every option can be changed from the game'
 | Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. | Controls, Keyboard, Hotkeys |
 
 ## Screenshots
+
+The Enhanced cursor from Mouse Enhancements:
+
+| In town | In the inventory |
+|---|---|
+| ![The Enhanced cursor in town](docs/images/cursor-field.png) | ![The Enhanced cursor in the inventory](docs/images/cursor-menu.png) |
 
 Mouse Enhancements adds a Mouse tab to Settings:
 
