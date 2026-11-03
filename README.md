@@ -4,7 +4,9 @@
 
 ![AI-assisted](https://img.shields.io/badge/AI--assisted-Claude%20Code-blueviolet) ![licence MIT](https://img.shields.io/badge/licence-MIT-blue)
 
-![The Enhanced cursor in town](docs/images/cursor-field.png) ![The Enhanced cursor in the inventory](docs/images/cursor-menu.png)
+| In town | In the inventory |
+|---|---|
+| ![The Enhanced cursor in town](docs/images/cursor-field.png) | ![The Enhanced cursor in the inventory](docs/images/cursor-menu.png) |
 
 You choose which mods to install, and every option can be changed from the game's menus. Mods you don't install change nothing.
 
