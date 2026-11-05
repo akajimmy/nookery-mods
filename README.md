@@ -13,7 +13,7 @@ You choose which mods to install, and every option can be changed from the game'
 | Mouse Enhancements | An Enhanced cursor: the back of a smaller glove pointing to the top left, clicking on its fingertip and tilting into the world when you click. Use it out of menus, in menus (replacing the menu hand) or everywhere; keep the cursor from hiding when idle; right-click turns your character toward the cursor before interacting. Also fixes the glove blinking while you walk, and Print Screen or modifier keys hiding it. | Settings, Mouse (a tab that appears when this mod is on) |
 | Audio Mutes | Separate mutes for music, sound effects and villager voices, each with a hotkey, and small icons in the lower left while muted. | Settings, Audio, Mute; hotkeys under Controls, Keyboard, Hotkeys |
 | Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause. | Settings, Gameplay |
-| Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. | Controls, Keyboard, Hotkeys |
+| Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. Optional: close the game after saving instead of going back to the title screen. | Controls, Keyboard, Hotkeys; Settings, Gameplay |
 
 ## Screenshots
 
@@ -71,6 +71,7 @@ Every option has a control in the game's menus (see the table above). They are s
 | gameplay.instantText | false | Instant Text | Text boxes appear at once |
 | gameplay.skipTextPauses | false | Skip Text Pauses | Skip every timed pause, including before self-clearing pages |
 | input.saveQuitKey | F5 | Hotkeys, Save and Quit | Save and Quit key |
+| gameplay.saveQuitToDesktop | false | Quit to Desktop After Saving | Close the game after saving and ending, from the hotkey or your gyroid |
 
 Hotkeys also reach the game, so a hotkey on a key bound to a game button does both. The default hotkeys are all keys Nookery's default keyboard layout leaves unbound; if you rebind your controls, keep them clear of these.
 

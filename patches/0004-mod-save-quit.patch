@@ -1,9 +1,9 @@
 diff --git a/pc/include/mods/save_quit.h b/pc/include/mods/save_quit.h
 new file mode 100644
-index 0000000..8fcbfbf
+index 0000000..b85a937
 --- /dev/null
 +++ b/pc/include/mods/save_quit.h
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,19 @@
 +#ifndef MODS_SAVE_QUIT_H
 +#define MODS_SAVE_QUIT_H
 +
@@ -13,6 +13,10 @@ index 0000000..8fcbfbf
 +
 +/* Save and Quit mod: set by the hotkey, consumed by play_main on the next gameplay frame. */
 +extern int g_mod_save_quit_request;
++/* The Quit to Desktop After Saving setting. */
++extern int g_mod_save_quit_to_desktop;
++/* Set once the gyroid's save is on disk and the game is heading for the title. */
++extern int g_mod_save_quit_saved;
 +
 +#ifdef __cplusplus
 +}
@@ -21,21 +25,23 @@ index 0000000..8fcbfbf
 +#endif
 diff --git a/pc/res/lang/mods/save_quit.json b/pc/res/lang/mods/save_quit.json
 new file mode 100644
-index 0000000..84efcfc
+index 0000000..a9a6c86
 --- /dev/null
 +++ b/pc/res/lang/mods/save_quit.json
-@@ -0,0 +1,3 @@
+@@ -0,0 +1,5 @@
 +{
-+  "mods.save_quit.hotkey": "Save and Quit"
++  "mods.save_quit.hotkey": "Save and Quit",
++  "mods.save_quit.to_desktop": "Quit to Desktop After Saving",
++  "mods.save_quit.to_desktop_help": "After you save and end the game, close Nookery instead of going back to the title screen. Works for the hotkey and for talking to your gyroid."
 +}
 diff --git a/pc/src/mods/save_quit.cpp b/pc/src/mods/save_quit.cpp
 new file mode 100644
-index 0000000..8b0ceb8
+index 0000000..ee0cca2
 --- /dev/null
 +++ b/pc/src/mods/save_quit.cpp
-@@ -0,0 +1,27 @@
-+// Save and Quit: a hotkey that opens the gyroid's save screen while you're outdoors in your own town.
-+// The game side is pc_save_quit_update in src/game/m_play.c.
+@@ -0,0 +1,42 @@
++// Save and Quit: a hotkey that opens the gyroid's save screen while you're outdoors in your own town, and an option
++// to close the game after saving instead of going back to the title. The game side is in src/game/m_play.c.
 +
 +#include "acgc/mods.hpp"
 +#include "mods/save_quit.h"
@@ -44,25 +50,68 @@ index 0000000..8b0ceb8
 +#include <string>
 +
 +extern "C" int g_mod_save_quit_request = 0;
++extern "C" int g_mod_save_quit_to_desktop = 0;
++extern "C" int g_mod_save_quit_saved = 0;
 +
 +namespace {
 +using borealis::config::Var;
 +
 +std::unique_ptr<Var<std::string>> s_key;
++std::unique_ptr<Var<bool>> s_toDesktop;
 +
 +void create_settings(borealis::config::Registry& registry) {
 +    // F5: unbound in Nookery's default keyboard layout, and the usual quick-save key in PC games.
 +    s_key = std::make_unique<Var<std::string>>(registry, "input.saveQuitKey", std::string("F5"));
++    s_toDesktop = std::make_unique<Var<bool>>(registry, "gameplay.saveQuitToDesktop", false);
++}
++
++void apply_settings() {
++    g_mod_save_quit_to_desktop = s_toDesktop->get() ? 1 : 0;
 +}
 +
 +void add_hotkeys(std::vector<acgc::mods::Hotkey>& hotkeys) {
 +    hotkeys.push_back({ "mods.save_quit.hotkey", s_key.get(), [] { g_mod_save_quit_request = 1; } });
 +}
++
++void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
++    if (page == acgc::mods::SettingsPage::Gameplay) {
++        builder.add_bool(*s_toDesktop, "mods.save_quit.to_desktop", "mods.save_quit.to_desktop_help");
++    }
++}
 +} // namespace
 +
-+ACGC_REGISTER_MOD(save_quit, .name = "Save and Quit", .create_settings = create_settings, .add_hotkeys = add_hotkeys);
++ACGC_REGISTER_MOD(save_quit, .name = "Save and Quit", .create_settings = create_settings,
++                  .apply_settings = apply_settings, .add_hotkeys = add_hotkeys, .build_settings = build_settings);
+diff --git a/src/actor/npc/ac_npc_restart.c b/src/actor/npc/ac_npc_restart.c
+index 1074d95..2ec7c49 100644
+--- a/src/actor/npc/ac_npc_restart.c
++++ b/src/actor/npc/ac_npc_restart.c
+@@ -8,6 +8,9 @@
+ #include "m_house.h"
+ #include "m_bgm.h"
+ #include "m_string.h"
++#ifdef TARGET_PC
++#include "mods/save_quit.h"
++#endif
+ 
+ enum {
+     aNRST_THINK_START,
+diff --git a/src/actor/npc/ac_npc_restart_talk.c_inc b/src/actor/npc/ac_npc_restart_talk.c_inc
+index fd750f8..a626ec8 100644
+--- a/src/actor/npc/ac_npc_restart_talk.c_inc
++++ b/src/actor/npc/ac_npc_restart_talk.c_inc
+@@ -195,6 +195,9 @@ static void aNRST_save(NPC_RESTART_ACTOR* actor, GAME_PLAY* play) {
+                 mMsg_SET_CONTINUE_MSG_NUM(aNRST_get_message(actor, 6, aNRST_MSG_GROUP1));
+             } else {
+                 mMsg_SET_CONTINUE_MSG_NUM(aNRST_get_message(actor, 19, aNRST_MSG_GROUP1));
++#ifdef TARGET_PC
++                g_mod_save_quit_saved = 1;
++#endif
+             }
+             mMsg_Unset_LockContinue(msg_p);
+             break;
 diff --git a/src/game/m_play.c b/src/game/m_play.c
-index cc859d6..bae4491 100644
+index cc859d6..75c3463 100644
 --- a/src/game/m_play.c
 +++ b/src/game/m_play.c
 @@ -42,6 +42,13 @@
@@ -79,7 +128,23 @@ index cc859d6..bae4491 100644
  #endif
  
  #define Game_play_HYRAL_SIZE 0x3E800 // 256,000 bytes
-@@ -855,10 +862,82 @@ static void Game_play_draw(GAME_PLAY* play) {
+@@ -211,6 +218,15 @@ static void Game_play_fbdemo_fade_out_start_emu_move_end(GAME_PLAY* play) {
+ }
+ 
+ static void Game_play_fbdemo_fade_out_game_end_move_end(GAME_PLAY* play) {
++#ifdef TARGET_PC
++    /* Save and Quit mod: after a save, this fade to black is where the game restarts at the title. */
++    if (g_mod_save_quit_saved) {
++        g_mod_save_quit_saved = 0;
++        if (g_mod_save_quit_to_desktop) {
++            g_pc_running = 0;
++        }
++    }
++#endif
+     GAME_GOTO_NEXT(&play->game, trademark, TRADEMARK);
+ }
+ 
+@@ -855,10 +871,82 @@ static void Game_play_draw(GAME_PLAY* play) {
      }
  }
  
