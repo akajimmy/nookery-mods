@@ -1,9 +1,9 @@
 diff --git a/pc/include/mods/relaxed_fishing.h b/pc/include/mods/relaxed_fishing.h
 new file mode 100644
-index 0000000..1f28bd6
+index 0000000..b1145e4
 --- /dev/null
 +++ b/pc/include/mods/relaxed_fishing.h
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,34 @@
 +#ifndef MODS_RELAXED_FISHING_H
 +#define MODS_RELAXED_FISHING_H
 +
@@ -22,7 +22,11 @@ index 0000000..1f28bd6
 +/* The Bite Sound setting: 0 none, or these flags. The choice order in relaxed_fishing.cpp relies on these values. */
 +#define mod_FISHING_BITE_SPLASH 1
 +#define mod_FISHING_BITE_CHOMP 2
++#define mod_FISHING_BITE_CUSTOM 4 /* a value of its own, not a flag */
 +extern int g_mod_fishing_bite_sound;
++
++/* Plays custom_sounds/fishing_bite.wav from the game folder. Returns 0 if there's no usable file. */
++int mod_fishing_play_custom_bite(void);
 +
 +/* Fish timers count one per drawn frame, so at high frame rates they run out early. This scales a timer by percent and
 + * lengthens it to last the same real time as at 60 FPS. dt_frames is the frame's length in 60ths of a second. Returns
@@ -36,10 +40,10 @@ index 0000000..1f28bd6
 +#endif
 diff --git a/pc/res/lang/mods/relaxed_fishing.json b/pc/res/lang/mods/relaxed_fishing.json
 new file mode 100644
-index 0000000..b2e2aec
+index 0000000..e09755a
 --- /dev/null
 +++ b/pc/res/lang/mods/relaxed_fishing.json
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,15 @@
 +{
 +  "mods.relaxed_fishing.nibble": "Time Between Nibbles",
 +  "mods.relaxed_fishing.nibble_help": "How long a fish backs off between pulls on the bobber. 100% is the original game.",
@@ -48,26 +52,32 @@ index 0000000..b2e2aec
 +  "mods.relaxed_fishing.no_first_bite": "Never Bite on First Pull",
 +  "mods.relaxed_fishing.no_first_bite_help": "A fish's first touch on the bobber is always a nibble, so you get a warning before it can bite.",
 +  "mods.relaxed_fishing.bite_sound": "Bite Sound",
-+  "mods.relaxed_fishing.bite_sound_help": "Play a sound when a fish bites, so you can hear when to reel in.",
++  "mods.relaxed_fishing.bite_sound_help": "Play a sound when a fish bites, so you can hear when to reel in. Custom File plays custom_sounds/fishing_bite.wav from your game folder.",
 +  "mods.relaxed_fishing.bite_sound.off": "Off",
 +  "mods.relaxed_fishing.bite_sound.splash": "Splash",
 +  "mods.relaxed_fishing.bite_sound.chomp": "Chomp",
-+  "mods.relaxed_fishing.bite_sound.both": "Splash and Chomp"
++  "mods.relaxed_fishing.bite_sound.both": "Splash and Chomp",
++  "mods.relaxed_fishing.bite_sound.custom": "Custom File"
 +}
 diff --git a/pc/src/mods/relaxed_fishing.cpp b/pc/src/mods/relaxed_fishing.cpp
 new file mode 100644
-index 0000000..482d832
+index 0000000..c88bc1b
 --- /dev/null
 +++ b/pc/src/mods/relaxed_fishing.cpp
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,103 @@
 +// Relaxed Fishing: slower nibbles, a longer window to hook the fish, no bite on the first touch, and a sound when a
 +// fish bites. The game side is in src/actor/ac_gyo_test.c, ac_gyo_kaseki.c for its copy of the same logic, and
 +// ac_uki_move.c_inc for the sound.
 +
++#include "acgc/data.hpp"
 +#include "acgc/mods.hpp"
 +#include "mods/relaxed_fishing.h"
 +
++#include <SDL3/SDL.h>
++
++#include <filesystem>
 +#include <memory>
++#include <string>
 +
 +extern "C" int g_mod_fishing_nibble_percent = 100;
 +extern "C" int g_mod_fishing_window_percent = 100;
@@ -87,6 +97,33 @@ index 0000000..482d832
 +    return static_cast<int>(frames * (percent / 100.0) / frame_length);
 +}
 +
++extern "C" int mod_fishing_play_custom_bite(void) {
++    constexpr float kGain = 0.7f; // full-scale files are loud next to the game's own sounds
++    static bool s_tried = false;
++    static SDL_AudioStream* s_stream = nullptr;
++    static Uint8* s_samples = nullptr;
++    static Uint32 s_length = 0;
++
++    if (!s_tried) {
++        s_tried = true;
++        const std::filesystem::path path =
++            acgc::data::manager().active_data_path() / "custom_sounds" / "fishing_bite.wav";
++        SDL_AudioSpec spec{};
++        if (SDL_LoadWAV(path.string().c_str(), &spec, &s_samples, &s_length)) {
++            s_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
++            if (s_stream != nullptr) {
++                SDL_SetAudioStreamGain(s_stream, kGain);
++                SDL_ResumeAudioStreamDevice(s_stream);
++            }
++        }
++    }
++    if (s_stream == nullptr) {
++        return 0;
++    }
++    SDL_ClearAudioStream(s_stream);
++    return SDL_PutAudioStreamData(s_stream, s_samples, static_cast<int>(s_length)) ? 1 : 0;
++}
++
 +namespace {
 +using borealis::config::Var;
 +using borealis::config::VarOptions;
@@ -103,8 +140,8 @@ index 0000000..482d832
 +                                          VarOptions<int>{ .min = 100, .max = 500 });
 +    s_noFirstBite = std::make_unique<Var<bool>>(registry, "gameplay.fishingNoFirstBite", true);
 +    s_biteSound = std::make_unique<Var<int>>(registry, "gameplay.fishingBiteSound",
-+                                             mod_FISHING_BITE_SPLASH | mod_FISHING_BITE_CHOMP,
-+                                             VarOptions<int>{ .min = 0, .max = 3 });
++                                             mod_FISHING_BITE_SPLASH,
++                                             VarOptions<int>{ .min = 0, .max = mod_FISHING_BITE_CUSTOM });
 +}
 +
 +void apply_settings() {
@@ -123,7 +160,8 @@ index 0000000..482d832
 +                         "mods.relaxed_fishing.no_first_bite_help");
 +        builder.add_choice(*s_biteSound, "mods.relaxed_fishing.bite_sound", "mods.relaxed_fishing.bite_sound_help",
 +                           { "mods.relaxed_fishing.bite_sound.off", "mods.relaxed_fishing.bite_sound.splash",
-+                             "mods.relaxed_fishing.bite_sound.chomp", "mods.relaxed_fishing.bite_sound.both" });
++                             "mods.relaxed_fishing.bite_sound.chomp", "mods.relaxed_fishing.bite_sound.both",
++                             "mods.relaxed_fishing.bite_sound.custom" });
 +    }
 +}
 +} // namespace
@@ -247,16 +285,18 @@ index d1bce83..b74b67c 100644
  enum {
      aUKI_PROC_CARRY,
 diff --git a/src/actor/ac_uki_move.c_inc b/src/actor/ac_uki_move.c_inc
-index 0199610..34ca39d 100644
+index 0199610..c5c0d54 100644
 --- a/src/actor/ac_uki_move.c_inc
 +++ b/src/actor/ac_uki_move.c_inc
-@@ -876,6 +876,16 @@ static void aUKI_set_proc_bite(ACTOR* actorx, GAME* game, int arg) {
+@@ -876,6 +876,18 @@ static void aUKI_set_proc_bite(ACTOR* actorx, GAME* game, int arg) {
      aUKI_clear_spd(actorx);
      aUKI_effect_sibuki(actorx, game, 0);
  
 +#ifdef TARGET_PC
-+    /* Relaxed Fishing: the original bite is silent. These are the bobber's landing splash and the eating sound. */
-+    if (g_mod_fishing_bite_sound & mod_FISHING_BITE_SPLASH) {
++    /* Relaxed Fishing: the original bite is silent. These are the bobber's landing splash and the eating sound, or the
++     * player's own sound file, falling back to the splash if there isn't one. */
++    if ((g_mod_fishing_bite_sound & mod_FISHING_BITE_SPLASH) ||
++        (g_mod_fishing_bite_sound == mod_FISHING_BITE_CUSTOM && !mod_fishing_play_custom_bite())) {
 +        sAdo_OngenTrgStart(NA_SE_10B, &actorx->world.position);
 +    }
 +    if (g_mod_fishing_bite_sound & mod_FISHING_BITE_CHOMP) {

@@ -79,7 +79,7 @@ Every option has a control in the game's menus (see the table above). They are s
 | gameplay.fishingNibblePercent | 200 | Time Between Nibbles | 100 to 400 percent of the original time between pulls on the bobber |
 | gameplay.fishingBiteWindowPercent | 300 | Time to Hook a Bite | 100 to 500 percent of the original time to reel in after a bite |
 | gameplay.fishingNoFirstBite | true | Never Bite on First Pull | A fish's first touch on the bobber is always a nibble |
-| gameplay.fishingBiteSound | 3 (Splash and Chomp) | Bite Sound | 0 Off, 1 Splash, 2 Chomp, 3 Splash and Chomp |
+| gameplay.fishingBiteSound | 1 (Splash) | Bite Sound | 0 Off, 1 Splash, 2 Chomp, 3 Splash and Chomp, 4 Custom File, which plays custom_sounds/fishing_bite.wav from your game folder |
 
 Hotkeys also reach the game, so a hotkey on a key bound to a game button does both. The default hotkeys are all keys Nookery's default keyboard layout leaves unbound; if you rebind your controls, keep them clear of these.
 
