@@ -34,6 +34,8 @@ MODS = [
                     "and an option to quit to the desktop after saving."},
     {"id": "villager_map", "name": "Villager Map",
      "description": "Shows where each villager is right now on the town map, and names who is in the selected acre."},
+    {"id": "relaxed_fishing", "name": "Relaxed Fishing",
+     "description": "Slower nibbles, longer to hook a bite, and fish never bite on the first pull."},
 ]
 
 

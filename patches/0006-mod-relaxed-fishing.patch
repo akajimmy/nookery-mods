@@ -1,0 +1,194 @@
+diff --git a/pc/include/mods/relaxed_fishing.h b/pc/include/mods/relaxed_fishing.h
+new file mode 100644
+index 0000000..41b3b93
+--- /dev/null
++++ b/pc/include/mods/relaxed_fishing.h
+@@ -0,0 +1,20 @@
++#ifndef MODS_RELAXED_FISHING_H
++#define MODS_RELAXED_FISHING_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* The value aGTT_touch_init and aGKK_touch_init give touch_counter; it drops by one with each nibble. */
++#define aGYO_TOUCH_COUNT_START 5
++
++/* Relaxed Fishing mod. Stay at 100, 100 and 0 (the original game) unless the mod is on. */
++extern int g_mod_fishing_nibble_percent; /* time between nibbles */
++extern int g_mod_fishing_window_percent; /* time to hook the fish after it bites */
++extern int g_mod_fishing_no_first_bite;  /* the first touch is always a nibble */
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/pc/res/lang/mods/relaxed_fishing.json b/pc/res/lang/mods/relaxed_fishing.json
+new file mode 100644
+index 0000000..283c83b
+--- /dev/null
++++ b/pc/res/lang/mods/relaxed_fishing.json
+@@ -0,0 +1,8 @@
++{
++  "mods.relaxed_fishing.nibble": "Time Between Nibbles",
++  "mods.relaxed_fishing.nibble_help": "How long a fish backs off between pulls on the bobber. 100% is the original game.",
++  "mods.relaxed_fishing.window": "Time to Hook a Bite",
++  "mods.relaxed_fishing.window_help": "How long you have to reel in after the bobber goes under. 100% is the original game.",
++  "mods.relaxed_fishing.no_first_bite": "Never Bite on First Pull",
++  "mods.relaxed_fishing.no_first_bite_help": "A fish's first touch on the bobber is always a nibble, so you get a warning before it can bite."
++}
+diff --git a/pc/src/mods/relaxed_fishing.cpp b/pc/src/mods/relaxed_fishing.cpp
+new file mode 100644
+index 0000000..6ee5324
+--- /dev/null
++++ b/pc/src/mods/relaxed_fishing.cpp
+@@ -0,0 +1,46 @@
++// Relaxed Fishing: slower nibbles, a longer window to hook the fish, and no bite on the first touch.
++// The game side is in src/actor/ac_gyo_test.c, and ac_gyo_kaseki.c for its copy of the same logic.
++
++#include "acgc/mods.hpp"
++#include "mods/relaxed_fishing.h"
++
++#include <memory>
++
++extern "C" int g_mod_fishing_nibble_percent = 100;
++extern "C" int g_mod_fishing_window_percent = 100;
++extern "C" int g_mod_fishing_no_first_bite = 0;
++
++namespace {
++using borealis::config::Var;
++using borealis::config::VarOptions;
++
++std::unique_ptr<Var<int>> s_nibble;
++std::unique_ptr<Var<int>> s_window;
++std::unique_ptr<Var<bool>> s_noFirstBite;
++
++void create_settings(borealis::config::Registry& registry) {
++    s_nibble = std::make_unique<Var<int>>(registry, "gameplay.fishingNibblePercent", 200,
++                                          VarOptions<int>{ .min = 100, .max = 400 });
++    s_window = std::make_unique<Var<int>>(registry, "gameplay.fishingBiteWindowPercent", 300,
++                                          VarOptions<int>{ .min = 100, .max = 500 });
++    s_noFirstBite = std::make_unique<Var<bool>>(registry, "gameplay.fishingNoFirstBite", true);
++}
++
++void apply_settings() {
++    g_mod_fishing_nibble_percent = s_nibble->get();
++    g_mod_fishing_window_percent = s_window->get();
++    g_mod_fishing_no_first_bite = s_noFirstBite->get() ? 1 : 0;
++}
++
++void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
++    if (page == acgc::mods::SettingsPage::Gameplay) {
++        builder.add_int(*s_nibble, "mods.relaxed_fishing.nibble", "mods.relaxed_fishing.nibble_help", 25, "%");
++        builder.add_int(*s_window, "mods.relaxed_fishing.window", "mods.relaxed_fishing.window_help", 25, "%");
++        builder.add_bool(*s_noFirstBite, "mods.relaxed_fishing.no_first_bite",
++                         "mods.relaxed_fishing.no_first_bite_help");
++    }
++}
++} // namespace
++
++ACGC_REGISTER_MOD(relaxed_fishing, .name = "Relaxed Fishing", .create_settings = create_settings,
++                  .apply_settings = apply_settings, .build_settings = build_settings);
+diff --git a/src/actor/ac_gyo_kaseki.c b/src/actor/ac_gyo_kaseki.c
+index a5d80ea..ec89cb6 100644
+--- a/src/actor/ac_gyo_kaseki.c
++++ b/src/actor/ac_gyo_kaseki.c
+@@ -3,6 +3,9 @@
+ #include "m_common_data.h"
+ #include "m_player_lib.h"
+ #include "ac_uki.h"
++#ifdef TARGET_PC
++#include "mods/relaxed_fishing.h"
++#endif
+ 
+ enum {
+     aGKK_ACTION_SWIM,
+@@ -571,7 +574,14 @@ static void aGKK_touch(ACTOR* actorx, GAME* game) {
+         target_dist = search_position_distance(&actorx->world.position, &uki->actor_class.world.position);
+ 
+         if (target_dist < aGKK_touch_distance[gyo->size_type]) {
++#ifdef TARGET_PC
++            /* Relaxed Fishing: touch_counter still holds its starting value until the first nibble. */
++            int early_bite_ok = !g_mod_fishing_no_first_bite || gyo->touch_counter != aGYO_TOUCH_COUNT_START;
++
++            if ((early_bite_ok && aGKK_random_check(4.0f) == TRUE) || DECREMENT_TIMER(gyo->touch_counter) == 0) {
++#else
+             if ((aGKK_random_check(4.0f) == TRUE) || DECREMENT_TIMER(gyo->touch_counter) == 0) {
++#endif
+                 if (uki->gyo_status == 2) {
+                     uki->gyo_command = 2;
+ 
+@@ -589,6 +599,11 @@ static void aGKK_touch(ACTOR* actorx, GAME* game) {
+                 uki->touched_flag = TRUE;
+                 gyo->work0 = (int)((aGKK_touch_count[gyo->size_type] + RANDOM2_F(30.0f)) * 2.0f);
+                 actorx->speed = aGKK_back_speed[gyo->size_type] + RANDOM2_F(0.2f);
++#ifdef TARGET_PC
++                /* Relaxed Fishing: back away for longer but more slowly, so the fish ends up the same distance off. */
++                gyo->work0 = gyo->work0 * g_mod_fishing_nibble_percent / 100;
++                actorx->speed = actorx->speed * 100.0f / g_mod_fishing_nibble_percent;
++#endif
+             }
+         }
+     }
+@@ -760,6 +775,9 @@ static void aGKK_touch_init(aGYO_CTRL_ACTOR* gyo) {
+ 
+ static void aGKK_bite_init(aGYO_CTRL_ACTOR* gyo) {    
+     gyo->work0 = (int)(aGYO_bite_time[aGKK_get_uki_type()][gyoei_type[gyo->gyo_type].bite_time] * 2.0f);
++#ifdef TARGET_PC
++    gyo->work0 = gyo->work0 * g_mod_fishing_window_percent / 100;
++#endif
+     gyo->swork0 = 6;
+     aGKK_speed_reset((ACTOR*)gyo);
+ }
+diff --git a/src/actor/ac_gyo_test.c b/src/actor/ac_gyo_test.c
+index 96dfb08..d3238b2 100644
+--- a/src/actor/ac_gyo_test.c
++++ b/src/actor/ac_gyo_test.c
+@@ -3,6 +3,9 @@
+ #include "m_common_data.h"
+ #include "m_player_lib.h"
+ #include "ac_uki.h"
++#ifdef TARGET_PC
++#include "mods/relaxed_fishing.h"
++#endif
+ 
+ enum {
+     aGTT_ACTION_SWIM,
+@@ -584,7 +587,14 @@ static void aGTT_touch(ACTOR* actorx, GAME* game) {
+         target_dist = search_position_distance(&actorx->world.position, &uki->actor_class.world.position);
+ 
+         if (target_dist < aGTT_touch_distance[gyo->size_type]) {
++#ifdef TARGET_PC
++            /* Relaxed Fishing: touch_counter still holds its starting value until the first nibble. */
++            int early_bite_ok = !g_mod_fishing_no_first_bite || gyo->touch_counter != aGYO_TOUCH_COUNT_START;
++
++            if ((early_bite_ok && aGTT_random_check(4.0f) != FALSE && (aGYO_check_fall(gyo) == TRUE)) || DECREMENT_TIMER(gyo->touch_counter) == 0) {
++#else
+             if ((aGTT_random_check(4.0f) != FALSE && (aGYO_check_fall(gyo) == TRUE)) || DECREMENT_TIMER(gyo->touch_counter) == 0) {
++#endif
+                 if (uki->gyo_status == 2) {
+                     uki->gyo_command = 2;
+ 
+@@ -602,6 +612,11 @@ static void aGTT_touch(ACTOR* actorx, GAME* game) {
+                 uki->touched_flag = TRUE;
+                 gyo->work0 = (int)((aGTT_touch_count[gyo->size_type] + RANDOM2_F(30.0f)) * 2.0f);
+                 actorx->speed = aGTT_back_speed[gyo->size_type] + RANDOM2_F(0.2f);
++#ifdef TARGET_PC
++                /* Relaxed Fishing: back away for longer but more slowly, so the fish ends up the same distance off. */
++                gyo->work0 = gyo->work0 * g_mod_fishing_nibble_percent / 100;
++                actorx->speed = actorx->speed * 100.0f / g_mod_fishing_nibble_percent;
++#endif
+             }
+         }
+     }
+@@ -806,6 +821,9 @@ static void aGTT_touch_init(aGYO_CTRL_ACTOR* gyo) {
+ 
+ static void aGTT_bite_init(aGYO_CTRL_ACTOR* gyo) {    
+     gyo->work0 = (int)(aGYO_bite_time[aGYO_get_uki_type()][gyoei_type[gyo->gyo_type].bite_time] * 2.0f);
++#ifdef TARGET_PC
++    gyo->work0 = gyo->work0 * g_mod_fishing_window_percent / 100;
++#endif
+     gyo->swork0 = 3;
+     aGTT_speed_reset((ACTOR*)gyo);
+ }
