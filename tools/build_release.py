@@ -30,7 +30,10 @@ MODS = [
     {"id": "instant_text", "name": "Instant Text",
      "description": "Text boxes appear at once while the villager keeps speaking; optionally skip timed pauses."},
     {"id": "save_quit", "name": "Save and Quit",
-     "description": "A hotkey that opens the gyroid's save screen while you're outdoors in your own town."},
+     "description": "A hotkey that opens the gyroid's save screen while you're outdoors in your own town, "
+                    "and an option to quit to the desktop after saving."},
+    {"id": "villager_map", "name": "Villager Map",
+     "description": "Shows where each villager is right now on the town map, and names who is in the selected acre."},
 ]
 
 
