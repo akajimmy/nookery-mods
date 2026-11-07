@@ -1,9 +1,9 @@
 diff --git a/pc/include/mods/instant_text.h b/pc/include/mods/instant_text.h
 new file mode 100644
-index 0000000..2a80f84
+index 0000000..4bb6d52
 --- /dev/null
 +++ b/pc/include/mods/instant_text.h
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +#ifndef MODS_INSTANT_TEXT_H
 +#define MODS_INSTANT_TEXT_H
 +
@@ -14,6 +14,7 @@ index 0000000..2a80f84
 +/* Instant Text mod. */
 +extern int g_mod_instant_text;     /* 1 = fill each text window in one frame */
 +extern int g_mod_skip_text_pauses; /* 1 = ignore every timed pause in dialogue */
++extern int g_mod_instant_item_names; /* 1 = item names in menus appear with no delay */
 +
 +#ifdef __cplusplus
 +}
@@ -22,24 +23,27 @@ index 0000000..2a80f84
 +#endif
 diff --git a/pc/res/lang/mods/instant_text.json b/pc/res/lang/mods/instant_text.json
 new file mode 100644
-index 0000000..bdfb6d8
+index 0000000..41f6166
 --- /dev/null
 +++ b/pc/res/lang/mods/instant_text.json
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,8 @@
 +{
 +  "mods.instant_text.label": "Instant Text",
 +  "mods.instant_text.help": "Show each text box all at once, skipping the short pauses between sentences. The villager keeps speaking at the normal pace until you move on.",
 +  "mods.instant_text.skip_pauses": "Skip Text Pauses",
-+  "mods.instant_text.skip_pauses_help": "Ignore every timed pause written into dialogue, including the one before a page that clears itself, which may then go by too fast to read."
++  "mods.instant_text.skip_pauses_help": "Ignore every timed pause written into dialogue, including the one before a page that clears itself, which may then go by too fast to read.",
++  "mods.instant_text.item_names": "Instant Item Names",
++  "mods.instant_text.item_names_help": "Show an item's name as soon as you point at it in a menu, instead of after a short delay."
 +}
 diff --git a/pc/src/mods/instant_text.cpp b/pc/src/mods/instant_text.cpp
 new file mode 100644
-index 0000000..2bdfaf3
+index 0000000..9eb50ce
 --- /dev/null
 +++ b/pc/src/mods/instant_text.cpp
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,43 @@
 +// Instant Text: shows each text box in one frame while the villager keeps speaking at the normal pace, and an
-+// option to skip every timed pause. The game side is in src/game/m_msg_cursol.c_inc.
++// option to skip every timed pause. The game side is in src/game/m_msg_cursol.c_inc. Also an option for item names in
++// menus to appear at once, in src/game/m_tag_ovl.c.
 +
 +#include "acgc/mods.hpp"
 +#include "mods/instant_text.h"
@@ -48,27 +52,32 @@ index 0000000..2bdfaf3
 +
 +extern "C" int g_mod_instant_text = 0;
 +extern "C" int g_mod_skip_text_pauses = 0;
++extern "C" int g_mod_instant_item_names = 0;
 +
 +namespace {
 +using borealis::config::Var;
 +
 +std::unique_ptr<Var<bool>> s_instant;
 +std::unique_ptr<Var<bool>> s_skipPauses;
++std::unique_ptr<Var<bool>> s_itemNames;
 +
 +void create_settings(borealis::config::Registry& registry) {
 +    s_instant = std::make_unique<Var<bool>>(registry, "gameplay.instantText", false);
 +    s_skipPauses = std::make_unique<Var<bool>>(registry, "gameplay.skipTextPauses", false);
++    s_itemNames = std::make_unique<Var<bool>>(registry, "gameplay.instantItemNames", false);
 +}
 +
 +void apply_settings() {
 +    g_mod_instant_text = s_instant->get() ? 1 : 0;
 +    g_mod_skip_text_pauses = s_skipPauses->get() ? 1 : 0;
++    g_mod_instant_item_names = s_itemNames->get() ? 1 : 0;
 +}
 +
 +void build_settings(acgc::mods::SettingsPage page, acgc::mods::SettingsBuilder& builder) {
 +    if (page == acgc::mods::SettingsPage::Gameplay) {
 +        builder.add_bool(*s_instant, "mods.instant_text.label", "mods.instant_text.help");
 +        builder.add_bool(*s_skipPauses, "mods.instant_text.skip_pauses", "mods.instant_text.skip_pauses_help");
++        builder.add_bool(*s_itemNames, "mods.instant_text.item_names", "mods.instant_text.item_names_help");
 +    }
 +}
 +} // namespace
@@ -364,3 +373,40 @@ index cde4b43..5f949ce 100644
              break;
            }
          }
+diff --git a/src/game/m_tag_ovl.c b/src/game/m_tag_ovl.c
+index 9511915..9f07016 100644
+--- a/src/game/m_tag_ovl.c
++++ b/src/game/m_tag_ovl.c
+@@ -2,6 +2,7 @@
+ 
+ #ifdef TARGET_PC
+ #include "game_pointer.h"
++#include "mods/instant_text.h"
+ #endif
+ 
+ #include "m_common_data.h"
+@@ -1248,6 +1249,12 @@ static s16 mTG_get_item_name_wait_time(mTG_tag_c* tag) {
+         time = 20;
+     }
+ 
++#ifdef TARGET_PC
++    if (g_mod_instant_item_names) {
++        time = 0;
++    }
++#endif
++
+     return time;
+ }
+ 
+@@ -8022,6 +8029,11 @@ static int mTG_normal_move(Submenu* submenu, mSM_MenuInfo_c* menu_info, mTG_Ovl_
+         } else {
+             if (!mTG_countdown_item_name_wait_time(tag_ovl)) {
+                 tag->scale += 0.125f * dt;
++#ifdef TARGET_PC
++                if (g_mod_instant_item_names) {
++                    tag->scale = 1.0f;
++                }
++#endif
+                 if (tag->scale > 1.0f) {
+                     tag->scale = 1.0f;
+                 }

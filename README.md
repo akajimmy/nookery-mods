@@ -12,7 +12,7 @@ You choose which mods to install, and every option can be changed from the game'
 |---|---|---|
 | Mouse Enhancements | An Enhanced cursor: the back of a smaller glove pointing to the top left, clicking on its fingertip and tilting into the world when you click. Use it out of menus, in menus (replacing the menu hand) or everywhere; keep the cursor from hiding when idle; right-click turns your character toward the cursor before interacting. Also fixes the glove blinking while you walk, and Print Screen or modifier keys hiding it. | Settings, Mouse (a tab that appears when this mod is on) |
 | Audio Mutes | Separate mutes for music, sound effects and villager voices, each with a hotkey, and small icons in the lower left while muted. | Settings, Audio, Mute; hotkeys under Controls, Keyboard, Hotkeys |
-| Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause. | Settings, Gameplay |
+| Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause, and show item names in menus without the delay. | Settings, Gameplay |
 | Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. Optional: close the game after saving instead of going back to the title screen. | Controls, Keyboard, Hotkeys; Settings, Gameplay |
 | Villager Map | The town map marks where each villager is right now, yellow outdoors and white indoors, and names who is in the selected acre. | Settings, Gameplay |
 | Relaxed Fishing | Slower nibbles, longer to hook a bite, and fish never bite on the first pull. | Settings, Gameplay |
@@ -72,6 +72,7 @@ Every option has a control in the game's menus (see the table above). They are s
 | audio.showMuteIcons | true | Show Mute Icons | Show the lower-left icons while something is muted |
 | gameplay.instantText | false | Instant Text | Text boxes appear at once |
 | gameplay.skipTextPauses | false | Skip Text Pauses | Skip every timed pause, including before self-clearing pages |
+| gameplay.instantItemNames | false | Instant Item Names | Item names in menus appear with no delay |
 | input.saveQuitKey | F5 | Hotkeys, Save and Quit | Save and Quit key |
 | gameplay.saveQuitToDesktop | false | Quit to Desktop After Saving | Close the game after saving and ending, from the hotkey or your gyroid |
 | gameplay.villagerMap | true | Show Villagers on Map | Mark where each villager is now on the town map |
