@@ -15,7 +15,7 @@ You choose which mods to install, and every option can be changed from the game'
 | Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause, and show item names in menus without the delay. | Settings, Gameplay |
 | Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. Optional: close the game after saving instead of going back to the title screen. | Controls, Keyboard, Hotkeys; Settings, Gameplay |
 | Villager Map | The town map marks where each villager is right now, yellow outdoors and white indoors, and names who is in the selected acre. | Settings, Gameplay |
-| Relaxed Fishing | Slower nibbles, longer to hook a bite, and fish never bite on the first pull. | Settings, Gameplay |
+| Relaxed Fishing | Slower nibbles, longer to hook a bite, fish never bite on the first pull, and a sound when one bites. | Settings, Gameplay |
 
 ## Screenshots
 
@@ -79,6 +79,7 @@ Every option has a control in the game's menus (see the table above). They are s
 | gameplay.fishingNibblePercent | 200 | Time Between Nibbles | 100 to 400 percent of the original time between pulls on the bobber |
 | gameplay.fishingBiteWindowPercent | 300 | Time to Hook a Bite | 100 to 500 percent of the original time to reel in after a bite |
 | gameplay.fishingNoFirstBite | true | Never Bite on First Pull | A fish's first touch on the bobber is always a nibble |
+| gameplay.fishingBiteSound | 3 (Splash and Chomp) | Bite Sound | 0 Off, 1 Splash, 2 Chomp, 3 Splash and Chomp |
 
 Hotkeys also reach the game, so a hotkey on a key bound to a game button does both. The default hotkeys are all keys Nookery's default keyboard layout leaves unbound; if you rebind your controls, keep them clear of these.
 
