@@ -108,7 +108,7 @@ index 7cba6f9..ad640a2 100644
  }
  
 diff --git a/src/game/m_msg_cursol.c_inc b/src/game/m_msg_cursol.c_inc
-index cde4b43..5f949ce 100644
+index cde4b43..5f9d63a 100644
 --- a/src/game/m_msg_cursol.c_inc
 +++ b/src/game/m_msg_cursol.c_inc
 @@ -1,3 +1,16 @@
@@ -160,7 +160,7 @@ index cde4b43..5f949ce 100644
    return mMsg_RESULT_VOID;
  }
  
-@@ -1097,6 +1128,92 @@ static int mMsg_Main_Cursol_Proc_ControlCursol(mMsg_Window_c* msg_p, int* idx_p)
+@@ -1097,6 +1128,98 @@ static int mMsg_Main_Cursol_Proc_ControlCursol(mMsg_Window_c* msg_p, int* idx_p)
    }
  }
  
@@ -219,6 +219,12 @@ index cde4b43..5f949ce 100644
 +    voice_pos = page_start;
 +  }
 +
++  /* Narration has no voice, only a click per character (mMsg_sound_CodeVoice). The text is already on screen, so
++   * clicking through it would just be a burst of noise. */
++  if ((msg_p->status_flags & mMsg_STATUS_FLAG_SOUND_CUT) != 0) {
++    voice_pos = msg_p->end_text_cursor_idx;
++  }
++
 +  speaking = voice_pos < msg_p->end_text_cursor_idx;
 +  if (!speaking) {
 +    /* Finished the page; end the voice once the text has stopped too. */
@@ -253,7 +259,7 @@ index cde4b43..5f949ce 100644
  static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
    int idx = msg_p->end_text_cursor_idx;
    f32* cursor_timer = &msg_p->cursor_timer;
-@@ -1104,6 +1221,39 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1104,6 +1227,39 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
    int res = TRUE;
    int utter = FALSE;
    int processed = FALSE;
@@ -293,7 +299,7 @@ index cde4b43..5f949ce 100644
  
  #ifdef PC_ENHANCEMENTS
    /* B latches fast text for the rest of the message; L/R or DPAD also speed it up */
-@@ -1132,7 +1282,7 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1132,7 +1288,7 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
      msg_p->cancel_flag = TRUE;
    }
  
@@ -302,7 +308,7 @@ index cde4b43..5f949ce 100644
      *cursor_timer = 0.0f;
    }
    else if ((msg_p->status_flags & mMsg_STATUS_FLAG_FAST_TEXT) && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
-@@ -1176,10 +1326,52 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1176,10 +1332,52 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
          idx += mMsg_Set_SizeCode(msg_p, idx);
        }
        else if (mMsg_Main_Cursol_Check_ControlCursol(msg_p, idx)) {
@@ -356,7 +362,7 @@ index cde4b43..5f949ce 100644
              mMsg_sound_voice_endcode_set(msg_p);
            }
  
-@@ -1209,10 +1401,14 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1209,10 +1407,14 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
          *cursor_timer += 2.0f;
  
          if  (msg_p->cancel_flag == FALSE) {

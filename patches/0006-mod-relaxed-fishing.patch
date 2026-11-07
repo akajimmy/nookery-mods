@@ -1,9 +1,9 @@
 diff --git a/pc/include/mods/relaxed_fishing.h b/pc/include/mods/relaxed_fishing.h
 new file mode 100644
-index 0000000..6cbbde8
+index 0000000..1f28bd6
 --- /dev/null
 +++ b/pc/include/mods/relaxed_fishing.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,30 @@
 +#ifndef MODS_RELAXED_FISHING_H
 +#define MODS_RELAXED_FISHING_H
 +
@@ -23,6 +23,11 @@ index 0000000..6cbbde8
 +#define mod_FISHING_BITE_SPLASH 1
 +#define mod_FISHING_BITE_CHOMP 2
 +extern int g_mod_fishing_bite_sound;
++
++/* Fish timers count one per drawn frame, so at high frame rates they run out early. This scales a timer by percent and
++ * lengthens it to last the same real time as at 60 FPS. dt_frames is the frame's length in 60ths of a second. Returns
++ * frames unchanged when the mod is off. */
++int mod_fishing_scale_frames(int frames, int percent, double dt_frames);
 +
 +#ifdef __cplusplus
 +}
@@ -51,10 +56,10 @@ index 0000000..b2e2aec
 +}
 diff --git a/pc/src/mods/relaxed_fishing.cpp b/pc/src/mods/relaxed_fishing.cpp
 new file mode 100644
-index 0000000..5bb6a4d
+index 0000000..482d832
 --- /dev/null
 +++ b/pc/src/mods/relaxed_fishing.cpp
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,70 @@
 +// Relaxed Fishing: slower nibbles, a longer window to hook the fish, no bite on the first touch, and a sound when a
 +// fish bites. The game side is in src/actor/ac_gyo_test.c, ac_gyo_kaseki.c for its copy of the same logic, and
 +// ac_uki_move.c_inc for the sound.
@@ -68,6 +73,19 @@ index 0000000..5bb6a4d
 +extern "C" int g_mod_fishing_window_percent = 100;
 +extern "C" int g_mod_fishing_no_first_bite = 0;
 +extern "C" int g_mod_fishing_bite_sound = 0;
++
++namespace {
++bool s_active = false;
++} // namespace
++
++extern "C" int mod_fishing_scale_frames(int frames, int percent, double dt_frames) {
++    if (!s_active) {
++        return frames;
++    }
++    // Clamped so one long or very short frame can't throw the timer off: 0.25 is 240 FPS, and 1 is 60 FPS or slower.
++    const double frame_length = dt_frames < 0.25 ? 0.25 : (dt_frames > 1.0 ? 1.0 : dt_frames);
++    return static_cast<int>(frames * (percent / 100.0) / frame_length);
++}
 +
 +namespace {
 +using borealis::config::Var;
@@ -90,6 +108,7 @@ index 0000000..5bb6a4d
 +}
 +
 +void apply_settings() {
++    s_active = true;
 +    g_mod_fishing_nibble_percent = s_nibble->get();
 +    g_mod_fishing_window_percent = s_window->get();
 +    g_mod_fishing_no_first_bite = s_noFirstBite->get() ? 1 : 0;
@@ -112,7 +131,7 @@ index 0000000..5bb6a4d
 +ACGC_REGISTER_MOD(relaxed_fishing, .name = "Relaxed Fishing", .create_settings = create_settings,
 +                  .apply_settings = apply_settings, .build_settings = build_settings);
 diff --git a/src/actor/ac_gyo_kaseki.c b/src/actor/ac_gyo_kaseki.c
-index a5d80ea..ec89cb6 100644
+index a5d80ea..11cb6f4 100644
 --- a/src/actor/ac_gyo_kaseki.c
 +++ b/src/actor/ac_gyo_kaseki.c
 @@ -3,6 +3,9 @@
@@ -146,7 +165,7 @@ index a5d80ea..ec89cb6 100644
                  actorx->speed = aGKK_back_speed[gyo->size_type] + RANDOM2_F(0.2f);
 +#ifdef TARGET_PC
 +                /* Relaxed Fishing: back away for longer but more slowly, so the fish ends up the same distance off. */
-+                gyo->work0 = gyo->work0 * g_mod_fishing_nibble_percent / 100;
++                gyo->work0 = mod_fishing_scale_frames(gyo->work0, g_mod_fishing_nibble_percent, gamePT->graph->dt_num_60fps_frames);
 +                actorx->speed = actorx->speed * 100.0f / g_mod_fishing_nibble_percent;
 +#endif
              }
@@ -157,13 +176,13 @@ index a5d80ea..ec89cb6 100644
  static void aGKK_bite_init(aGYO_CTRL_ACTOR* gyo) {    
      gyo->work0 = (int)(aGYO_bite_time[aGKK_get_uki_type()][gyoei_type[gyo->gyo_type].bite_time] * 2.0f);
 +#ifdef TARGET_PC
-+    gyo->work0 = gyo->work0 * g_mod_fishing_window_percent / 100;
++    gyo->work0 = mod_fishing_scale_frames(gyo->work0, g_mod_fishing_window_percent, gamePT->graph->dt_num_60fps_frames);
 +#endif
      gyo->swork0 = 6;
      aGKK_speed_reset((ACTOR*)gyo);
  }
 diff --git a/src/actor/ac_gyo_test.c b/src/actor/ac_gyo_test.c
-index 96dfb08..d3238b2 100644
+index 96dfb08..3789be5 100644
 --- a/src/actor/ac_gyo_test.c
 +++ b/src/actor/ac_gyo_test.c
 @@ -3,6 +3,9 @@
@@ -197,7 +216,7 @@ index 96dfb08..d3238b2 100644
                  actorx->speed = aGTT_back_speed[gyo->size_type] + RANDOM2_F(0.2f);
 +#ifdef TARGET_PC
 +                /* Relaxed Fishing: back away for longer but more slowly, so the fish ends up the same distance off. */
-+                gyo->work0 = gyo->work0 * g_mod_fishing_nibble_percent / 100;
++                gyo->work0 = mod_fishing_scale_frames(gyo->work0, g_mod_fishing_nibble_percent, gamePT->graph->dt_num_60fps_frames);
 +                actorx->speed = actorx->speed * 100.0f / g_mod_fishing_nibble_percent;
 +#endif
              }
@@ -208,7 +227,7 @@ index 96dfb08..d3238b2 100644
  static void aGTT_bite_init(aGYO_CTRL_ACTOR* gyo) {    
      gyo->work0 = (int)(aGYO_bite_time[aGYO_get_uki_type()][gyoei_type[gyo->gyo_type].bite_time] * 2.0f);
 +#ifdef TARGET_PC
-+    gyo->work0 = gyo->work0 * g_mod_fishing_window_percent / 100;
++    gyo->work0 = mod_fishing_scale_frames(gyo->work0, g_mod_fishing_window_percent, gamePT->graph->dt_num_60fps_frames);
 +#endif
      gyo->swork0 = 3;
      aGTT_speed_reset((ACTOR*)gyo);
