@@ -12,9 +12,9 @@ You choose which mods to install, and every option can be changed from the game'
 |---|---|---|
 | Mouse Enhancements | An Enhanced cursor: the back of a smaller glove pointing to the top left, clicking on its fingertip and tilting into the world when you click. Use it out of menus, in menus (replacing the menu hand) or everywhere; keep the cursor from hiding when idle; right-click turns your character toward the cursor before interacting. Also fixes the glove blinking while you walk, and Print Screen or modifier keys hiding it. | Settings, Mouse (a tab that appears when this mod is on) |
 | Audio Mutes | Separate mutes for music, sound effects and villager voices, each with a hotkey, and small icons in the lower left while muted. | Settings, Audio, Mute; hotkeys under Controls, Keyboard, Hotkeys |
-| Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. Optional: skip every timed pause, and show item names in menus without the delay. | Settings, Gameplay |
+| Instant Text | Text boxes appear all at once while the villager keeps speaking at the normal pace, cut off when you move on. This includes lines the original game types out at a fixed pace (Chip, Blathers); only Kapp'n's songs keep their pace, to stay with the music. Optional: skip every timed pause, and show item names in menus without the delay. | Settings, Gameplay |
 | Save and Quit | A hotkey that opens the gyroid's save screen while you're outdoors in your own town. Optional: close the game after saving instead of going back to the title screen. | Controls, Keyboard, Hotkeys; Settings, Gameplay |
-| Villager Map | The town map marks where each villager is right now, yellow outdoors and white indoors, and names who is in the selected acre. | Settings, Gameplay |
+| Villager Map | The town map marks where everyone is right now: green for villagers outdoors, yellow for villagers indoors, blue for town regulars (Tortimer, Chip, K.K., Pete), pink for one-day visitors (Redd, Katrina, Saharah and others), red for the summer camper. Select an acre to see who is there. | Settings, Gameplay |
 | Relaxed Fishing | Slower nibbles, longer to hook a bite, fish never bite on the first pull, and a sound when one bites. | Settings, Gameplay |
 
 ## Screenshots
@@ -75,7 +75,7 @@ Every option has a control in the game's menus (see the table above). They are s
 | gameplay.instantItemNames | false | Instant Item Names | Item names in menus appear with no delay |
 | input.saveQuitKey | F5 | Hotkeys, Save and Quit | Save and Quit key |
 | gameplay.saveQuitToDesktop | false | Quit to Desktop After Saving | Close the game after saving and ending, from the hotkey or your gyroid |
-| gameplay.villagerMap | true | Show Villagers on Map | Mark where each villager is now on the town map |
+| gameplay.villagerMap | true | Show Villagers on Map | Mark where villagers and visitors are now on the town map |
 | gameplay.fishingNibblePercent | 200 | Time Between Nibbles | 100 to 400 percent of the original time between pulls on the bobber |
 | gameplay.fishingBiteWindowPercent | 300 | Time to Hook a Bite | 100 to 500 percent of the original time to reel in after a bite |
 | gameplay.fishingNoFirstBite | true | Never Bite on First Pull | A fish's first touch on the bobber is always a nibble |
