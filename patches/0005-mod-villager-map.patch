@@ -21,13 +21,13 @@ index 0000000..58f6789
 +#endif
 diff --git a/pc/res/lang/mods/villager_map.json b/pc/res/lang/mods/villager_map.json
 new file mode 100644
-index 0000000..f00402d
+index 0000000..87b6965
 --- /dev/null
 +++ b/pc/res/lang/mods/villager_map.json
 @@ -0,0 +1,4 @@
 +{
 +  "mods.villager_map.label": "Show Villagers on Map",
-+  "mods.villager_map.help": "Mark where each villager is right now on the town map: yellow outdoors, white indoors. Select an acre to see who is there."
++  "mods.villager_map.help": "Mark where everyone is right now on the town map: yellow dots are villagers outdoors, blue dots are villagers indoors, and pink squares are visitors like Tortimer, Chip, K.K. and Katrina. Select an acre to see who is there."
 +}
 diff --git a/pc/src/mods/villager_map.cpp b/pc/src/mods/villager_map.cpp
 new file mode 100644
@@ -68,27 +68,73 @@ index 0000000..08371b4
 +ACGC_REGISTER_MOD(villager_map, .name = "Villager Map", .create_settings = create_settings,
 +                  .apply_settings = apply_settings, .build_settings = build_settings);
 diff --git a/src/game/m_map_ovl.c b/src/game/m_map_ovl.c
-index 4f65ca5..f725f22 100644
+index 4f65ca5..90a2456 100644
 --- a/src/game/m_map_ovl.c
 +++ b/src/game/m_map_ovl.c
-@@ -14,6 +14,10 @@
+@@ -14,6 +14,14 @@
  #ifdef MOUSE_INPUT
  #include "game_pointer.h"
  #endif
 +#ifdef TARGET_PC
 +#include "m_play.h"
 +#include "mods/villager_map.h"
++#include "m_field_make.h"
++#include "m_name_table.h"
++#include "m_npc.h"
++#include "borealis/log_c.h"
 +#endif
  
  #define mMP_MAP_OFFSET_X 11.7f
  #define mMP_MAP_OFFSET_Y 45.7f
-@@ -1346,6 +1350,127 @@ static void mMP_set_label_top_dl(GRAPH* graph, mMP_LabelInfo_c* label_info) {
+@@ -1346,6 +1354,332 @@ static void mMP_set_label_top_dl(GRAPH* graph, mMP_LabelInfo_c* label_info) {
      }
  }
  
 +#ifdef TARGET_PC
-+/* Villager Map mod. Colours are { r, g, b }, indexed by whether the villager is outdoors. */
-+static u8 mMP_villager_color[2][3] = { { 215, 215, 225 }, { 255, 225, 0 } };
++/* Villager Map mod. Colours are { r, g, b }: indoors blue, outdoors yellow, visitors pink. */
++enum { mMP_MARK_INDOORS, mMP_MARK_OUTDOORS, mMP_MARK_VISITOR };
++static u8 mMP_villager_color[3][3] = { { 80, 190, 255 }, { 255, 225, 0 }, { 255, 100, 200 } };
++
++/* Characters who aren't villagers, and who appear around town rather than staying in one building. Several actor
++ * names can be the same person (Tortimer has one per event); person groups them so each is shown once. Copper only
++ * leaves his post to lead the morning exercise, as SP_NPC_EV_TAISOU_0, so his post (SP_NPC_POLICE) isn't listed. */
++static const struct {
++    mActor_name_t name;
++    u8 person;
++} mMP_visitor_names[] = {
++    { SP_NPC_EV_SONCHO, 0 },     { SP_NPC_EV_SONCHO2, 0 },   { SP_NPC_SONCHO, 0 },        { SP_NPC_SONCHO_D078, 0 },
++    { SP_NPC_SONCHO_D079, 0 },   { SP_NPC_EV_SPEECH_SONCHO, 0 },                         /* Tortimer */
++    { SP_NPC_ANGLER, 1 },                                                                 /* Chip */
++    { SP_NPC_TOTAKEKE, 2 },                                                               /* K.K. Slider */
++    { SP_NPC_POST_MAN, 3 },                                                               /* Pete */
++    { SP_NPC_BROKER, 4 },        { SP_NPC_EV_BROKER2, 4 },   { SP_NPC_EV_YOMISE, 4 },    { SP_NPC_EV_YOMISE2, 4 }, /* Redd */
++    { SP_NPC_GYPSY, 5 },         { SP_NPC_EV_MIKO, 5 },                                   /* Katrina */
++    { SP_NPC_CARPETPEDDLER, 6 },                                                          /* Saharah */
++    { SP_NPC_ARTIST, 7 },                                                                 /* Wendell */
++    { SP_NPC_SANTA, 8 },                                                                  /* Jingle */
++    { SP_NPC_DESIGNER, 9 },                                                               /* Gracie */
++    { SP_NPC_KABUPEDDLER, 10 },                                                           /* Joan */
++    { SP_NPC_HALLOWEEN, 11 },                                                             /* Jack */
++    { SP_NPC_EV_DOZAEMON, 12 },                                                           /* Gulliver */
++    { SP_NPC_EV_GHOST, 13 },                                                              /* Wisp */
++    { SP_NPC_MASK_CAT, 14 },     { SP_NPC_MASK_CAT2, 14 },                                /* Blanca */
++    { SP_NPC_TURKEY, 15 },                                                                /* Franklin */
++    { SP_NPC_HEM, 16 },                                                                   /* Farley */
++    { SP_NPC_EV_TAISOU_0, 17 },                                                           /* Copper */
++};
++#define mMP_PERSON_NUM 18
++#define mMP_VISITOR_MAX 12
++
++typedef struct {
++    mActor_name_t name;
++    u8 person;
++    f32 acre_x;
++    f32 acre_z;
++} mMP_visitor_c;
++
++static mMP_visitor_c mMP_visitors[mMP_VISITOR_MAX];
++static int mMP_visitor_num = 0;
++static u32 mMP_visitor_logged = 0;
 +
 +static Vtx mMP_villager_quad_v[] = {
 +    { { { -1, 1, 0 }, 0, { 0, 0 }, { 255, 255, 255, 255 } } },
@@ -138,6 +184,144 @@ index 4f65ca5..f725f22 100644
 +    return *acre_x >= 0.0f && *acre_x < FG_BLOCK_X_NUM && *acre_z >= 0.0f && *acre_z < FG_BLOCK_Z_NUM;
 +}
 +
++static int mMP_visitor_person(mActor_name_t name) {
++    int i;
++
++    for (i = 0; i < ARRAY_COUNT(mMP_visitor_names); i++) {
++        if (mMP_visitor_names[i].name == name) {
++            return mMP_visitor_names[i].person;
++        }
++    }
++    return -1;
++}
++
++/* Adds a visitor at a world position, unless that person is already on the list (the first source wins). */
++static void mMP_add_visitor(mActor_name_t name, const xyz_t* pos) {
++    int person = mMP_visitor_person(name);
++    f32 acre_x;
++    f32 acre_z;
++    int i;
++
++    if (person < 0 || mMP_visitor_num >= mMP_VISITOR_MAX) {
++        return;
++    }
++    for (i = 0; i < mMP_visitor_num; i++) {
++        if (mMP_visitors[i].person == person) {
++            return;
++        }
++    }
++
++    acre_x = pos->x / mFI_BK_WORLDSIZE_X_F - 1.0f;
++    acre_z = pos->z / mFI_BK_WORLDSIZE_Z_F - 1.0f;
++    if (acre_x < 0.0f || acre_x >= FG_BLOCK_X_NUM || acre_z < 0.0f || acre_z >= FG_BLOCK_Z_NUM) {
++        return;
++    }
++
++    mMP_visitors[mMP_visitor_num].name = name;
++    mMP_visitors[mMP_visitor_num].person = person;
++    mMP_visitors[mMP_visitor_num].acre_x = acre_x;
++    mMP_visitors[mMP_visitor_num].acre_z = acre_z;
++    mMP_visitor_num++;
++}
++
++static void mMP_add_visitor_at_unit(mActor_name_t name, int bx, int bz, int ut_x, int ut_z) {
++    xyz_t pos;
++
++    if (mMP_visitor_person(name) >= 0 && mFI_BlockCheck(bx, bz)) {
++        mFI_BkandUtNum2CenterWpos(&pos, bx, bz, ut_x, ut_z);
++        mMP_add_visitor(name, &pos);
++    }
++}
++
++/* Finds the visitors in town, from three places, best first:
++ *  1. live actors, which exist near the player and have exact positions;
++ *  2. the event places (Common event_common), where events and visits put their character, e.g. Chip at the fishing
++ *     tourney, K.K. on Saturday night, Katrina's tent;
++ *  3. each acre's move-actor list, the characters to spawn when the player walks into that acre. */
++static void mMP_collect_visitors(GAME* game) {
++    mEv_common_data_c* ev_common = Common_GetPointer(event_common);
++    int outdoors = mFI_GET_TYPE(mFI_GetFieldId()) == mFI_FIELD_FG;
++    u32 signature = 1;
++    int i;
++
++    mMP_visitor_num = 0;
++
++    if (outdoors) {
++        ACTOR* actor;
++
++        for (actor = ((GAME_PLAY*)game)->actor_info.list[ACTOR_PART_NPC].actor; actor != NULL;
++             actor = actor->next_actor) {
++            mMP_add_visitor(actor->npc_id, &actor->world.position);
++        }
++    }
++
++    for (i = 0; i < mEv_PLACE_NUM; i++) {
++        mEv_place_c* place = &ev_common->place[i];
++
++        if ((ev_common->place_use_bitfield & (1 << i)) != 0 && mEv_check_status(place->info.type, mEv_STATUS_ACTIVE)) {
++            mMP_add_visitor_at_unit(place->data.actor_name, place->data.block.x, place->data.block.z,
++                                    place->data.unit.x, place->data.unit.z);
++        }
++    }
++
++    /* The acre lists belong to the town field, so they're only read while the player is in it. */
++    if (outdoors && g_fdinfo != NULL) {
++        int bx;
++        int bz;
++
++        for (bz = 0; bz < BLOCK_Z_NUM; bz++) {
++            for (bx = 0; bx < BLOCK_X_NUM; bx++) {
++                if (mFI_BlockCheck(bx, bz)) {
++                    mFM_move_actor_c* list = g_fdinfo->block_info[mFI_GetBlockNum(bx, bz)].fg_info.move_actors;
++
++                    for (i = 0; i < mFM_MOVE_ACTOR_NUM; i++) {
++                        if (list[i].name_id != EMPTY_NO) {
++                            mMP_add_visitor_at_unit(list[i].name_id, bx, bz, list[i].ut_x, list[i].ut_z);
++                        }
++                    }
++                }
++            }
++        }
++    }
++
++    /* Log the list whenever it changes, so a wrong or missing mark can be traced to its source. */
++    for (i = 0; i < mMP_visitor_num; i++) {
++        signature = signature * 31 + mMP_visitors[i].name * 7 + (u32)(mMP_visitors[i].acre_x * 4.0f) * 131 +
++                    (u32)(mMP_visitors[i].acre_z * 4.0f);
++    }
++    if (signature != mMP_visitor_logged) {
++        mMP_visitor_logged = signature;
++        borealis_log_printf(BOREALIS_LOG_INFO, "villager_map", "%d visitor(s) on the map", mMP_visitor_num);
++        for (i = 0; i < mMP_visitor_num; i++) {
++            borealis_log_printf(BOREALIS_LOG_INFO, "villager_map", "  %04X at acre %.2f, %.2f", mMP_visitors[i].name,
++                                mMP_visitors[i].acre_x, mMP_visitors[i].acre_z);
++        }
++        for (i = 0; i < mEv_PLACE_NUM; i++) {
++            if ((ev_common->place_use_bitfield & (1 << i)) != 0) {
++                mEv_place_c* place = &ev_common->place[i];
++
++                borealis_log_printf(BOREALIS_LOG_INFO, "villager_map",
++                                    "  event place %d: event %d id %d, actor %04X, block %d,%d unit %d,%d, %s", i,
++                                    place->info.type, place->info.id, place->data.actor_name, place->data.block.x,
++                                    place->data.block.z, place->data.unit.x, place->data.unit.z,
++                                    mEv_check_status(place->info.type, mEv_STATUS_ACTIVE) ? "active" : "inactive");
++            }
++        }
++    }
++}
++
++/* A visitor's name, loaded once per person. */
++static u8* mMP_visitor_name(const mMP_visitor_c* visitor) {
++    static u8 names[mMP_PERSON_NUM][ANIMAL_NAME_LEN];
++    static u8 loaded[mMP_PERSON_NUM];
++
++    if (!loaded[visitor->person]) {
++        mNpc_GetActorWorldName(names[visitor->person], visitor->name);
++        loaded[visitor->person] = TRUE;
++    }
++    return names[visitor->person];
++}
++
 +static Gfx* mMP_villager_rect(Gfx* gfx, GRAPH* graph, f32 x, f32 y, f32 half_w, f32 half_h, u8 r, u8 g, u8 b) {
 +    Matrix_scale(16.0f, 16.0f, 1.0f, MTX_LOAD);
 +    Matrix_translate(x, y, 140.0f, MTX_MULT);
@@ -178,6 +362,17 @@ index 4f65ca5..f725f22 100644
 +        }
 +    }
 +
++    /* Visitors are squares, so they differ by shape as well as colour. */
++    mMP_collect_visitors(game);
++    for (i = 0; i < mMP_visitor_num; i++) {
++        f32 x = left + mMP_visitors[i].acre_x * mMP_BLOCK_SIZE_F;
++        f32 y = top - mMP_visitors[i].acre_z * mMP_BLOCK_SIZE_F;
++        u8* col = mMP_villager_color[mMP_MARK_VISITOR];
++
++        gfx = mMP_villager_rect(gfx, graph, x, y, 2.25f, 2.25f, 40, 30, 30);
++        gfx = mMP_villager_rect(gfx, graph, x, y, 1.5f, 1.5f, col[0], col[1], col[2]);
++    }
++
 +    SET_POLY_OPA_DISP(gfx);
 +    CLOSE_DISP(graph);
 +}
@@ -204,13 +399,27 @@ index 4f65ca5..f725f22 100644
 +            y += 9.0f;
 +        }
 +    }
++
++    /* mMP_set_villager_dl filled the visitor list earlier this frame. */
++    for (i = 0; i < mMP_visitor_num; i++) {
++        if ((int)mMP_visitors[i].acre_x == map_ovl->sel_bx && (int)mMP_visitors[i].acre_z == map_ovl->sel_bz) {
++            u8* name = mMP_visitor_name(&mMP_visitors[i]);
++            u8* col = mMP_villager_color[mMP_MARK_VISITOR];
++
++            mFont_SetLineStrings(game, name, ANIMAL_NAME_LEN, x + 0.75f, y + 0.75f, 40, 30, 30, 255, FALSE, TRUE,
++                                 0.65f, 0.65f, mFont_MODE_POLY);
++            mFont_SetLineStrings(game, name, ANIMAL_NAME_LEN, x, y, col[0], col[1], col[2], 255, FALSE, TRUE, 0.65f,
++                                 0.65f, mFont_MODE_POLY);
++            y += 9.0f;
++        }
++    }
 +}
 +#endif
 +
  static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
      static u8 land_color[2][4] = {
          { 255, 0, 255, 255 },
-@@ -1371,6 +1496,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
+@@ -1371,6 +1705,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
      mMP_set_label_top_dl(graph, label_info);
      mMP_set_house_dl(graph, map_ovl, xpos, ypos);
      mMP_set_cursol_dl(graph, map_ovl, xpos, ypos);
@@ -222,7 +431,7 @@ index 4f65ca5..f725f22 100644
  
      (*submenu->overlay->set_char_matrix_proc)(graph);
  
-@@ -1382,6 +1512,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
+@@ -1382,6 +1721,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
                           col[1], col[2], 255, FALSE, TRUE, 1.0f, 1.0f, mFont_MODE_POLY);
  
      mMP_set_label_dl(game, label_info, xpos, ypos);
