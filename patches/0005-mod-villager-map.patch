@@ -21,13 +21,13 @@ index 0000000..58f6789
 +#endif
 diff --git a/pc/res/lang/mods/villager_map.json b/pc/res/lang/mods/villager_map.json
 new file mode 100644
-index 0000000..87b6965
+index 0000000..80f9e3a
 --- /dev/null
 +++ b/pc/res/lang/mods/villager_map.json
 @@ -0,0 +1,4 @@
 +{
 +  "mods.villager_map.label": "Show Villagers on Map",
-+  "mods.villager_map.help": "Mark where everyone is right now on the town map: yellow dots are villagers outdoors, blue dots are villagers indoors, and pink squares are visitors like Tortimer, Chip, K.K. and Katrina. Select an acre to see who is there."
++  "mods.villager_map.help": "Mark where everyone is right now on the town map: green for villagers outdoors, yellow for villagers indoors, blue for town regulars like Tortimer, Chip and K.K., pink for one-day visitors like Katrina, Redd and Saharah, and red for a villager visiting from another town. Select an acre to see who is there."
 +}
 diff --git a/pc/src/mods/villager_map.cpp b/pc/src/mods/villager_map.cpp
 new file mode 100644
@@ -68,7 +68,7 @@ index 0000000..08371b4
 +ACGC_REGISTER_MOD(villager_map, .name = "Villager Map", .create_settings = create_settings,
 +                  .apply_settings = apply_settings, .build_settings = build_settings);
 diff --git a/src/game/m_map_ovl.c b/src/game/m_map_ovl.c
-index 4f65ca5..90a2456 100644
+index 4f65ca5..0b3c6cc 100644
 --- a/src/game/m_map_ovl.c
 +++ b/src/game/m_map_ovl.c
 @@ -14,6 +14,14 @@
@@ -86,44 +86,65 @@ index 4f65ca5..90a2456 100644
  
  #define mMP_MAP_OFFSET_X 11.7f
  #define mMP_MAP_OFFSET_Y 45.7f
-@@ -1346,6 +1354,332 @@ static void mMP_set_label_top_dl(GRAPH* graph, mMP_LabelInfo_c* label_info) {
+@@ -1346,6 +1354,410 @@ static void mMP_set_label_top_dl(GRAPH* graph, mMP_LabelInfo_c* label_info) {
      }
  }
  
 +#ifdef TARGET_PC
-+/* Villager Map mod. Colours are { r, g, b }: indoors blue, outdoors yellow, visitors pink. */
-+enum { mMP_MARK_INDOORS, mMP_MARK_OUTDOORS, mMP_MARK_VISITOR };
-+static u8 mMP_villager_color[3][3] = { { 80, 190, 255 }, { 255, 225, 0 }, { 255, 100, 200 } };
++/* Villager Map mod. Colours are { r, g, b }, one per kind of mark. */
++enum { mMP_MARK_INDOORS, mMP_MARK_OUTDOORS, mMP_MARK_REGULAR, mMP_MARK_TRAVELLER, mMP_MARK_CAMPER, mMP_MARK_NUM };
++static u8 mMP_villager_color[mMP_MARK_NUM][3] = {
++    { 255, 220, 0 },   /* villager indoors: yellow */
++    { 80, 230, 80 },   /* villager outdoors: green */
++    { 70, 150, 255 },  /* town regular: blue */
++    { 255, 110, 200 }, /* one-day traveller: pink */
++    { 240, 50, 40 },   /* visiting villager (the summer camper): red */
++};
 +
-+/* Characters who aren't villagers, and who appear around town rather than staying in one building. Several actor
-+ * names can be the same person (Tortimer has one per event); person groups them so each is shown once. Copper only
++/* Characters who aren't residents, and who appear around town rather than staying in one building. Several actor
++ * names can be the same person (Tortimer has one per event); person groups them so each is shown once. Redd, Katrina
++ * and Gracie stay in a tent or car, and the event list records that structure, so it stands for them. Copper only
 + * leaves his post to lead the morning exercise, as SP_NPC_EV_TAISOU_0, so his post (SP_NPC_POLICE) isn't listed. */
 +static const struct {
 +    mActor_name_t name;
 +    u8 person;
 +} mMP_visitor_names[] = {
++    /* Town regulars */
 +    { SP_NPC_EV_SONCHO, 0 },     { SP_NPC_EV_SONCHO2, 0 },   { SP_NPC_SONCHO, 0 },        { SP_NPC_SONCHO_D078, 0 },
 +    { SP_NPC_SONCHO_D079, 0 },   { SP_NPC_EV_SPEECH_SONCHO, 0 },                         /* Tortimer */
 +    { SP_NPC_ANGLER, 1 },                                                                 /* Chip */
 +    { SP_NPC_TOTAKEKE, 2 },                                                               /* K.K. Slider */
 +    { SP_NPC_POST_MAN, 3 },                                                               /* Pete */
-+    { SP_NPC_BROKER, 4 },        { SP_NPC_EV_BROKER2, 4 },   { SP_NPC_EV_YOMISE, 4 },    { SP_NPC_EV_YOMISE2, 4 }, /* Redd */
-+    { SP_NPC_GYPSY, 5 },         { SP_NPC_EV_MIKO, 5 },                                   /* Katrina */
-+    { SP_NPC_CARPETPEDDLER, 6 },                                                          /* Saharah */
-+    { SP_NPC_ARTIST, 7 },                                                                 /* Wendell */
-+    { SP_NPC_SANTA, 8 },                                                                  /* Jingle */
-+    { SP_NPC_DESIGNER, 9 },                                                               /* Gracie */
-+    { SP_NPC_KABUPEDDLER, 10 },                                                           /* Joan */
-+    { SP_NPC_HALLOWEEN, 11 },                                                             /* Jack */
-+    { SP_NPC_EV_DOZAEMON, 12 },                                                           /* Gulliver */
-+    { SP_NPC_EV_GHOST, 13 },                                                              /* Wisp */
-+    { SP_NPC_MASK_CAT, 14 },     { SP_NPC_MASK_CAT2, 14 },                                /* Blanca */
-+    { SP_NPC_TURKEY, 15 },                                                                /* Franklin */
-+    { SP_NPC_HEM, 16 },                                                                   /* Farley */
-+    { SP_NPC_EV_TAISOU_0, 17 },                                                           /* Copper */
++    { SP_NPC_EV_TAISOU_0, 4 },                                                            /* Copper */
++    /* One-day travellers */
++    { SP_NPC_BROKER, 5 },        { SP_NPC_EV_BROKER2, 5 },   { SP_NPC_EV_YOMISE, 5 },    { SP_NPC_EV_YOMISE2, 5 },
++    { BROKER_TENT, 5 },                                                                   /* Redd */
++    { SP_NPC_GYPSY, 6 },         { SP_NPC_EV_MIKO, 6 },      { FORTUNE_TENT, 6 },         /* Katrina */
++    { SP_NPC_CARPETPEDDLER, 7 },                                                          /* Saharah */
++    { SP_NPC_ARTIST, 8 },                                                                 /* Wendell */
++    { SP_NPC_SANTA, 9 },                                                                  /* Jingle */
++    { SP_NPC_DESIGNER, 10 },     { DESIGNER_CAR, 10 },                                    /* Gracie */
++    { SP_NPC_KABUPEDDLER, 11 },                                                           /* Joan */
++    { SP_NPC_HALLOWEEN, 12 },                                                             /* Jack */
++    { SP_NPC_EV_DOZAEMON, 13 },                                                           /* Gulliver */
++    { SP_NPC_EV_GHOST, 14 },                                                              /* Wisp */
++    { SP_NPC_MASK_CAT, 15 },     { SP_NPC_MASK_CAT2, 15 },                                /* Blanca */
++    { SP_NPC_TURKEY, 16 },                                                                /* Franklin */
++    { SP_NPC_HEM, 17 },                                                                   /* Farley */
++    /* Visiting villager: the summer camper, a villager from elsewhere staying in a tent */
++    { SP_NPC_EV_SUMMERCAMP_0, 18 }, { TENT, 18 },
 +};
-+#define mMP_PERSON_NUM 18
++#define mMP_PERSON_REGULAR_END 5 /* persons below this are town regulars */
++#define mMP_PERSON_CAMPER 18
++#define mMP_PERSON_NUM 19
 +#define mMP_VISITOR_MAX 12
++
++static int mMP_visitor_mark(int person) {
++    if (person == mMP_PERSON_CAMPER) {
++        return mMP_MARK_CAMPER;
++    }
++    return person < mMP_PERSON_REGULAR_END ? mMP_MARK_REGULAR : mMP_MARK_TRAVELLER;
++}
 +
 +typedef struct {
 +    mActor_name_t name;
@@ -136,15 +157,63 @@ index 4f65ca5..90a2456 100644
 +static int mMP_visitor_num = 0;
 +static u32 mMP_visitor_logged = 0;
 +
-+static Vtx mMP_villager_quad_v[] = {
-+    { { { -1, 1, 0 }, 0, { 0, 0 }, { 255, 255, 255, 255 } } },
-+    { { { -1, -1, 0 }, 0, { 0, 0 }, { 255, 255, 255, 255 } } },
-+    { { { 1, 1, 0 }, 0, { 0, 0 }, { 255, 255, 255, 255 } } },
-+    { { { 1, -1, 0 }, 0, { 0, 0 }, { 255, 255, 255, 255 } } },
++/* The dots are a textured square like the map's house icons: a 64x64 circle whose alpha is the circle's coverage of
++ * each texel, so the edge is smooth once filtered. The colour comes from the primitive colour. The texture is GX IA8
++ * (G_IM_FMT_IA, 16-bit): 4x4-texel tiles, two bytes per texel. Both bytes hold the coverage, so it reads the same
++ * whichever byte is alpha. */
++#define mMP_DOT_TEX_SIZE 64
++static ATTRIBUTE_ALIGN(32) u8 mMP_dot_tex[mMP_DOT_TEX_SIZE * mMP_DOT_TEX_SIZE * 2];
++
++static void mMP_make_dot_tex(void) {
++    static int made = FALSE;
++    const f32 centre = mMP_DOT_TEX_SIZE * 0.5f;
++    const f32 radius = centre - 1.0f;
++    int x;
++    int y;
++
++    if (made) {
++        return;
++    }
++    made = TRUE;
++
++    for (y = 0; y < mMP_DOT_TEX_SIZE; y++) {
++        for (x = 0; x < mMP_DOT_TEX_SIZE; x++) {
++            /* Coverage from a 4x4 grid of samples in the texel. */
++            int inside = 0;
++            int sx;
++            int sy;
++            int tile = (y / 4) * (mMP_DOT_TEX_SIZE / 4) + (x / 4);
++            int ofs = (tile * 16 + (y % 4) * 4 + (x % 4)) * 2;
++            u8 coverage;
++
++            for (sy = 0; sy < 4; sy++) {
++                for (sx = 0; sx < 4; sx++) {
++                    f32 dx = x + (sx + 0.5f) / 4.0f - centre;
++                    f32 dy = y + (sy + 0.5f) / 4.0f - centre;
++
++                    inside += dx * dx + dy * dy <= radius * radius;
++                }
++            }
++            coverage = (u8)((inside * 255) / 16);
++            mMP_dot_tex[ofs] = coverage;
++            mMP_dot_tex[ofs + 1] = coverage;
++        }
++    }
++}
++
++/* A square of half-size 100 with the whole texture on it. UVs are texels * 32. */
++#define mMP_DOT_UV (mMP_DOT_TEX_SIZE * 32)
++static Vtx mMP_villager_dot_v[] = {
++    { { { -100, 100, 0 }, 0, { 0, 0 }, { 255, 255, 255, 255 } } },
++    { { { -100, -100, 0 }, 0, { 0, mMP_DOT_UV }, { 255, 255, 255, 255 } } },
++    { { { 100, 100, 0 }, 0, { mMP_DOT_UV, 0 }, { 255, 255, 255, 255 } } },
++    { { { 100, -100, 0 }, 0, { mMP_DOT_UV, mMP_DOT_UV }, { 255, 255, 255, 255 } } },
 +};
 +
-+static Gfx mMP_villager_quad_model[] = {
-+    gsSPVertex(mMP_villager_quad_v, 4, 0),
++static Gfx mMP_villager_disc_model[] = {
++    gsDPSetTextureImage_Dolphin(G_IM_FMT_IA, G_IM_SIZ_16b, mMP_DOT_TEX_SIZE, mMP_DOT_TEX_SIZE, mMP_dot_tex),
++    gsDPSetTile_Dolphin(G_DOLPHIN_TLUT_DEFAULT_MODE, 0, 0, GX_CLAMP, GX_CLAMP, 0, 0),
++    gsSPVertex(mMP_villager_dot_v, 4, 0),
 +    gsSPNTrianglesInit_5b(2, 0, 1, 2, 1, 3, 2, 0, 0, 0),
 +    gsSPEndDisplayList(),
 +};
@@ -310,11 +379,18 @@ index 4f65ca5..90a2456 100644
 +    }
 +}
 +
-+/* A visitor's name, loaded once per person. */
++/* A visitor's name, loaded once per person. The summer camper is a different villager each time, so their name comes
++ * from the villager the camper stands in for, every time. */
 +static u8* mMP_visitor_name(const mMP_visitor_c* visitor) {
 +    static u8 names[mMP_PERSON_NUM][ANIMAL_NAME_LEN];
 +    static u8 loaded[mMP_PERSON_NUM];
 +
++    if (visitor->person == mMP_PERSON_CAMPER) {
++        mNpc_MaskNpc_c* camper = mNpc_GetSameMaskNpc(SP_NPC_EV_SUMMERCAMP_0);
++
++        mNpc_GetActorWorldName(names[visitor->person], camper != NULL ? camper->npc_id : SP_NPC_EV_SUMMERCAMP_0);
++        return names[visitor->person];
++    }
 +    if (!loaded[visitor->person]) {
 +        mNpc_GetActorWorldName(names[visitor->person], visitor->name);
 +        loaded[visitor->person] = TRUE;
@@ -322,15 +398,23 @@ index 4f65ca5..90a2456 100644
 +    return names[visitor->person];
 +}
 +
-+static Gfx* mMP_villager_rect(Gfx* gfx, GRAPH* graph, f32 x, f32 y, f32 half_w, f32 half_h, u8 r, u8 g, u8 b) {
++static Gfx* mMP_villager_disc(Gfx* gfx, GRAPH* graph, f32 x, f32 y, f32 radius, u8 r, u8 g, u8 b) {
 +    Matrix_scale(16.0f, 16.0f, 1.0f, MTX_LOAD);
 +    Matrix_translate(x, y, 140.0f, MTX_MULT);
-+    Matrix_scale(half_w, half_h, 1.0f, MTX_MULT);
++    Matrix_scale(radius / 100.0f, radius / 100.0f, 1.0f, MTX_MULT);
 +
 +    gSPMatrix(gfx++, _Matrix_to_Mtx_new(graph), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 +    gDPSetPrimColor(gfx++, 0, 255, r, g, b, 255);
-+    gSPDisplayList(gfx++, mMP_villager_quad_model);
++    gSPDisplayList(gfx++, mMP_villager_disc_model);
 +    return gfx;
++}
++
++/* A coloured dot with a dark rim, so it shows on any map colour. */
++static Gfx* mMP_villager_dot(Gfx* gfx, GRAPH* graph, f32 x, f32 y, int mark) {
++    u8* col = mMP_villager_color[mark];
++
++    gfx = mMP_villager_disc(gfx, graph, x, y, 2.4f, 40, 30, 30);
++    return mMP_villager_disc(gfx, graph, x, y, 1.7f, col[0], col[1], col[2]);
 +}
 +
 +static void mMP_set_villager_dl(GAME* game, GRAPH* graph, f32 pos_x, f32 pos_y) {
@@ -344,33 +428,27 @@ index 4f65ca5..90a2456 100644
 +
 +    OPEN_DISP(graph);
 +
++    mMP_make_dot_tex();
 +    gfx = NOW_POLY_OPA_DISP;
 +    gSPDisplayList(gfx++, kan_win_mode);
-+    gDPSetCombineLERP(gfx++, 0, 0, 0, PRIMITIVE, 0, 0, 0, PRIMITIVE, 0, 0, 0, PRIMITIVE, 0, 0, 0, PRIMITIVE);
++    /* Colour from the primitive colour, alpha from the texture, blended by kan_win_mode like the house icons. */
++    gDPSetCombineLERP(gfx++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
 +
 +    for (i = 0; i < ANIMAL_NUM_MAX; i++) {
 +        if (mMP_villager_position(game, i, &acre_x, &acre_z, &outdoors)) {
 +            f32 x = left + acre_x * mMP_BLOCK_SIZE_F;
 +            f32 y = top - acre_z * mMP_BLOCK_SIZE_F;
-+            u8* col = mMP_villager_color[outdoors];
 +
-+            /* A rounded dot: two crossed bars, with a dark outline so it shows on any map colour. */
-+            gfx = mMP_villager_rect(gfx, graph, x, y, 2.5f, 1.5f, 40, 30, 30);
-+            gfx = mMP_villager_rect(gfx, graph, x, y, 1.5f, 2.5f, 40, 30, 30);
-+            gfx = mMP_villager_rect(gfx, graph, x, y, 1.75f, 1.0f, col[0], col[1], col[2]);
-+            gfx = mMP_villager_rect(gfx, graph, x, y, 1.0f, 1.75f, col[0], col[1], col[2]);
++            gfx = mMP_villager_dot(gfx, graph, x, y, outdoors ? mMP_MARK_OUTDOORS : mMP_MARK_INDOORS);
 +        }
 +    }
 +
-+    /* Visitors are squares, so they differ by shape as well as colour. */
 +    mMP_collect_visitors(game);
 +    for (i = 0; i < mMP_visitor_num; i++) {
 +        f32 x = left + mMP_visitors[i].acre_x * mMP_BLOCK_SIZE_F;
 +        f32 y = top - mMP_visitors[i].acre_z * mMP_BLOCK_SIZE_F;
-+        u8* col = mMP_villager_color[mMP_MARK_VISITOR];
 +
-+        gfx = mMP_villager_rect(gfx, graph, x, y, 2.25f, 2.25f, 40, 30, 30);
-+        gfx = mMP_villager_rect(gfx, graph, x, y, 1.5f, 1.5f, col[0], col[1], col[2]);
++        gfx = mMP_villager_dot(gfx, graph, x, y, mMP_visitor_mark(mMP_visitors[i].person));
 +    }
 +
 +    SET_POLY_OPA_DISP(gfx);
@@ -390,7 +468,7 @@ index 4f65ca5..90a2456 100644
 +        if (mMP_villager_position(game, i, &acre_x, &acre_z, &outdoors) && (int)acre_x == map_ovl->sel_bx &&
 +            (int)acre_z == map_ovl->sel_bz) {
 +            u8* name = map_ovl->animal_info[i].name;
-+            u8* col = mMP_villager_color[outdoors];
++            u8* col = mMP_villager_color[outdoors ? mMP_MARK_OUTDOORS : mMP_MARK_INDOORS];
 +
 +            mFont_SetLineStrings(game, name, PLAYER_NAME_LEN, x + 0.75f, y + 0.75f, 40, 30, 30, 255, FALSE, TRUE, 0.65f,
 +                                 0.65f, mFont_MODE_POLY);
@@ -404,7 +482,7 @@ index 4f65ca5..90a2456 100644
 +    for (i = 0; i < mMP_visitor_num; i++) {
 +        if ((int)mMP_visitors[i].acre_x == map_ovl->sel_bx && (int)mMP_visitors[i].acre_z == map_ovl->sel_bz) {
 +            u8* name = mMP_visitor_name(&mMP_visitors[i]);
-+            u8* col = mMP_villager_color[mMP_MARK_VISITOR];
++            u8* col = mMP_villager_color[mMP_visitor_mark(mMP_visitors[i].person)];
 +
 +            mFont_SetLineStrings(game, name, ANIMAL_NAME_LEN, x + 0.75f, y + 0.75f, 40, 30, 30, 255, FALSE, TRUE,
 +                                 0.65f, 0.65f, mFont_MODE_POLY);
@@ -419,7 +497,7 @@ index 4f65ca5..90a2456 100644
  static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
      static u8 land_color[2][4] = {
          { 255, 0, 255, 255 },
-@@ -1371,6 +1705,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
+@@ -1371,6 +1783,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
      mMP_set_label_top_dl(graph, label_info);
      mMP_set_house_dl(graph, map_ovl, xpos, ypos);
      mMP_set_cursol_dl(graph, map_ovl, xpos, ypos);
@@ -431,7 +509,7 @@ index 4f65ca5..90a2456 100644
  
      (*submenu->overlay->set_char_matrix_proc)(graph);
  
-@@ -1382,6 +1721,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
+@@ -1382,6 +1799,11 @@ static void mMP_set_dl(Submenu* submenu, GAME* game, mSM_MenuInfo_c* menu) {
                           col[1], col[2], 255, FALSE, TRUE, 1.0f, 1.0f, mFont_MODE_POLY);
  
      mMP_set_label_dl(game, label_info, xpos, ypos);

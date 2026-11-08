@@ -108,27 +108,30 @@ index 7cba6f9..ad640a2 100644
  }
  
 diff --git a/src/game/m_msg_cursol.c_inc b/src/game/m_msg_cursol.c_inc
-index cde4b43..5f9d63a 100644
+index cde4b43..683af00 100644
 --- a/src/game/m_msg_cursol.c_inc
 +++ b/src/game/m_msg_cursol.c_inc
-@@ -1,3 +1,16 @@
+@@ -1,3 +1,19 @@
 +#ifdef PC_ENHANCEMENTS
 +static int mMsg_instant_text_active(mMsg_Window_c* msg_p);
 +
-+/* Exact-timing text keeps its pace, because scripted scenes can rely on it. Blathers is the exception: his museum
-+ * replies are marked this way, so they would type out letter by letter with no scene depending on them. */
++/* Exact-timing text (142 messages) is paced to animations or music. Instant text shows it at once anyway, sending its
++ * animation orders one at a time (see mMsg_Main_Cursol_ControlCursol), except for Kapp'n's songs, which are paced to
++ * the song playing under them. The song messages are 0x3091-0x309A and 0x3163-0x316C (ac_boat_demo_move.c_inc). */
 +static int mMsg_keeps_exact_timing(mMsg_Window_c* msg_p) {
 +  ACTOR* speaker = msg_p->client_actor_p;
++  int msg_no = msg_p->msg_data != NULL ? msg_p->msg_data->msg_no : -1;
++  int song = (msg_no >= 0x3091 && msg_no <= 0x309A) || (msg_no >= 0x3163 && msg_no <= 0x316C);
 +
 +  return (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) != 0 &&
-+         (speaker == NULL || speaker->npc_id != SP_NPC_CURATOR);
++         (song || (speaker != NULL && speaker->npc_id == SP_NPC_SENDO));
 +}
 +#endif
 +
  static int mMsg_Check_CancelOrder(mMsg_Window_c* msg_p) {
    if (msg_p->cancelable_flag != FALSE && msg_p->cancel_flag == FALSE && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
      if (mMsg_get_trigger() & (BUTTON_A | BUTTON_B)) {
-@@ -61,6 +74,18 @@ static int mMsg_Main_Cursol_CursolSetTime_ControlCursol(mMsg_Window_c* msg_p, in
+@@ -61,6 +77,18 @@ static int mMsg_Main_Cursol_CursolSetTime_ControlCursol(mMsg_Window_c* msg_p, in
    if (msg_p->cancel_flag) {
      return mMsg_RESULT_VOID;
    }
@@ -147,20 +150,20 @@ index cde4b43..5f9d63a 100644
  
    if (set_time > 0.0f) {
      msg_p->cursor_timer = set_time;
-@@ -924,6 +949,12 @@ static int mMsg_Main_Cursol_PutString_IslandName_ControlCursol(mMsg_Window_c* ms
+@@ -924,6 +952,12 @@ static int mMsg_Main_Cursol_PutString_IslandName_ControlCursol(mMsg_Window_c* ms
  static int mMsg_Main_Cursol_SetCursolJust_ControlCursol(mMsg_Window_c* msg_p, int* idx_p) {
    (*idx_p) += mMsg_Set_SizeCode(msg_p, *idx_p);
    mMsg_set_cursol_just(msg_p);
 +#ifdef PC_ENHANCEMENTS
 +  if (g_mod_instant_text) {
 +    borealis_log_printf(BOREALIS_LOG_INFO, "instant_text", "msg %d: exact-timing text, %s", msg_p->msg_data->msg_no,
-+                        mMsg_keeps_exact_timing(msg_p) ? "pace kept" : "Blathers, shown instantly");
++                        mMsg_keeps_exact_timing(msg_p) ? "Kapp'n's song, pace kept" : "shown instantly");
 +  }
 +#endif
    return mMsg_RESULT_VOID;
  }
  
-@@ -1097,6 +1128,98 @@ static int mMsg_Main_Cursol_Proc_ControlCursol(mMsg_Window_c* msg_p, int* idx_p)
+@@ -1097,6 +1131,98 @@ static int mMsg_Main_Cursol_Proc_ControlCursol(mMsg_Window_c* msg_p, int* idx_p)
    }
  }
  
@@ -259,7 +262,7 @@ index cde4b43..5f9d63a 100644
  static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
    int idx = msg_p->end_text_cursor_idx;
    f32* cursor_timer = &msg_p->cursor_timer;
-@@ -1104,6 +1227,39 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1104,6 +1230,39 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
    int res = TRUE;
    int utter = FALSE;
    int processed = FALSE;
@@ -299,7 +302,7 @@ index cde4b43..5f9d63a 100644
  
  #ifdef PC_ENHANCEMENTS
    /* B latches fast text for the rest of the message; L/R or DPAD also speed it up */
-@@ -1132,7 +1288,7 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1132,7 +1291,7 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
      msg_p->cancel_flag = TRUE;
    }
  
@@ -308,7 +311,7 @@ index cde4b43..5f9d63a 100644
      *cursor_timer = 0.0f;
    }
    else if ((msg_p->status_flags & mMsg_STATUS_FLAG_FAST_TEXT) && (msg_p->status_flags & mMsg_STATUS_FLAG_CURSOL_JUST) == 0) {
-@@ -1176,10 +1332,52 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1176,10 +1335,52 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
          idx += mMsg_Set_SizeCode(msg_p, idx);
        }
        else if (mMsg_Main_Cursol_Check_ControlCursol(msg_p, idx)) {
@@ -362,7 +365,7 @@ index cde4b43..5f9d63a 100644
              mMsg_sound_voice_endcode_set(msg_p);
            }
  
-@@ -1209,10 +1407,14 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
+@@ -1209,10 +1410,14 @@ static int mMsg_Main_Cursol_ControlCursol(mMsg_Window_c* msg_p) {
          *cursor_timer += 2.0f;
  
          if  (msg_p->cancel_flag == FALSE) {
